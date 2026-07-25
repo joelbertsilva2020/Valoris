@@ -1,0 +1,147 @@
+const express = require('express');
+const portalService = require('../services/portalService');
+const { validarCpf } = require('../utils/cpf');
+
+const router = express.Router();
+
+function tratarErro(res, contexto, erro) {
+  console.error(`[Portal] Erro em ${contexto}:`, erro.message);
+  const status = erro.status === 404 ? 404 : 500;
+  res.status(status).json({
+    erro: status === 404
+      ? 'Não encontramos essa informação.'
+      : 'Não foi possível concluir agora. Tente novamente em instantes.',
+  });
+}
+
+// 1. Tela inicial — consultar CPF em todos os parceiros integrados
+router.post('/consultar-cpf', async (req, res) => {
+  try {
+    const { cpf } = req.body;
+    if (!cpf) return res.status(400).json({ erro: 'Informe um CPF.' });
+    if (!validarCpf(cpf)) return res.status(400).json({ erro: 'CPF inválido. Confira os números digitados.' });
+    const resultado = await portalService.consultarCpf(cpf);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'consultar-cpf', erro);
+  }
+});
+
+// 2a. Cadastro — primeiro acesso
+router.post('/cadastro', async (req, res) => {
+  try {
+    const { cpf, nome, dataNascimento, email, telefone } = req.body;
+    if (!cpf || !nome || !dataNascimento) {
+      return res.status(400).json({ erro: 'Nome, CPF e data de nascimento são obrigatórios.' });
+    }
+    if (!validarCpf(cpf)) return res.status(400).json({ erro: 'CPF inválido.' });
+    const resultado = await portalService.cadastrarCliente({ cpf, nome, dataNascimento, email, telefone });
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'cadastro', erro);
+  }
+});
+
+// 2b. Validação de retorno — CPF + data de nascimento
+router.post('/validar-retorno', async (req, res) => {
+  try {
+    const { cpf, dataNascimento } = req.body;
+    if (!cpf || !dataNascimento) {
+      return res.status(400).json({ erro: 'Informe CPF e data de nascimento.' });
+    }
+    const resultado = await portalService.validarRetorno(cpf, dataNascimento);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'validar-retorno', erro);
+  }
+});
+
+// 3. Lista de contratos
+router.post('/contratos', async (req, res) => {
+  try {
+    const { cpf } = req.body;
+    if (!cpf) return res.status(400).json({ erro: 'Informe um CPF.' });
+    const resultado = await portalService.listarContratos(cpf);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'contratos', erro);
+  }
+});
+
+// 4. Propostas de um contrato
+router.post('/propostas', async (req, res) => {
+  try {
+    const { contratoId, cpf } = req.body;
+    if (!contratoId) return res.status(400).json({ erro: 'Contrato não informado.' });
+    const resultado = await portalService.listarPropostas(contratoId, cpf);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'propostas', erro);
+  }
+});
+
+// Registrar escolha da proposta (antes do checkout) — só telemetria
+router.post('/escolher-proposta', async (req, res) => {
+  try {
+    const { contratoId, propostaId, cpf } = req.body;
+    await portalService.registrarEscolhaProposta(contratoId, propostaId, cpf);
+    res.json({ ok: true });
+  } catch (erro) {
+    tratarErro(res, 'escolher-proposta', erro);
+  }
+});
+
+// 7. Efetivação — único ponto que cria o acordo de verdade
+router.post('/confirmar-acordo', async (req, res) => {
+  try {
+    const { contratoId, propostaEscolhida, cpf } = req.body;
+    if (!contratoId || !propostaEscolhida) {
+      return res.status(400).json({ erro: 'Dados insuficientes para confirmar o acordo.' });
+    }
+    const resultado = await portalService.confirmarAcordo({ contratoId, propostaEscolhida, cpf });
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'confirmar-acordo', erro);
+  }
+});
+
+// 9. Meu Acordo — sempre ao vivo
+router.post('/meu-acordo', async (req, res) => {
+  try {
+    const { contratoId } = req.body;
+    if (!contratoId) return res.status(400).json({ erro: 'Contrato não informado.' });
+    const resultado = await portalService.consultarMeuAcordo(contratoId);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'meu-acordo', erro);
+  }
+});
+
+// 10. Próximos acessos — decide para onde mandar o cliente
+router.post('/proximo-passo', async (req, res) => {
+  try {
+    const { cpf, contratos } = req.body;
+    if (!cpf || !contratos || contratos.length === 0) {
+      return res.status(400).json({ erro: 'Dados insuficientes.' });
+    }
+    const resultado = await portalService.decidirProximoPasso(cpf, contratos);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'proximo-passo', erro);
+  }
+});
+
+// Telemetria de abandono — chamado via navigator.sendBeacon, não precisa
+// de resposta rica.
+router.post('/abandono', async (req, res) => {
+  try {
+    const { cpf, etapa } = req.body;
+    await portalService.registrarAbandono(cpf, etapa);
+    res.status(204).end();
+  } catch (erro) {
+    console.error('[Portal] Erro ao registrar abandono:', erro.message);
+    res.status(204).end();
+  }
+});
+
+module.exports = router;

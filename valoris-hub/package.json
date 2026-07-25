@@ -1,0 +1,19 @@
+{
+  "name": "valoris-hub-backend",
+  "version": "0.1.0",
+  "description": "Backend do Valoris Hub (Portal do Cliente + ERP Financeiro) - integra com CobranSaaS",
+  "main": "backend/src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node backend/src/server.js",
+    "start": "node backend/src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "@supabase/supabase-js": "^2.45.0",
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "serverless-http": "^3.2.0"
+  }
+}

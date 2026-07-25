@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #07070B;
+  color: #F4F3FA;
+  font-family: 'Inter', -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* ---------- Componentes reutilizáveis ---------- */
+
+.card-vidro {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.35);
+}
+
+.card-vidro-hover {
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+.card-vidro-hover:hover {
+  border-color: rgba(176, 92, 255, 0.45);
+  box-shadow: 0 0 28px rgba(108, 59, 255, 0.25), 0 4px 30px rgba(0, 0, 0, 0.35);
+  transform: translateY(-2px);
+}
+
+.botao-marca {
+  background: linear-gradient(135deg, #6C3BFF 0%, #B05CFF 55%, #36A8FF 100%);
+  box-shadow: 0 0 24px rgba(108, 59, 255, 0.45);
+  transition: filter 150ms ease, transform 100ms ease, box-shadow 150ms ease;
+}
+.botao-marca:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 34px rgba(108, 59, 255, 0.65);
+}
+.botao-marca:active {
+  transform: translateY(1px);
+}
+.botao-marca:disabled {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+  filter: none;
+}
+
+.texto-gradiente {
+  background: linear-gradient(135deg, #B05CFF 0%, #36A8FF 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.grade-holografica {
+  background-image:
+    linear-gradient(rgba(108, 59, 255, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(108, 59, 255, 0.18) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+.linha-luminosa {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(176, 92, 255, 0.6), transparent);
+}
+
+/* Scrollbar discreta */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 100px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(176, 92, 255, 0.4); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
