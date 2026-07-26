@@ -13,7 +13,7 @@ router.get('/status', async (req, res) => {
     const cobransaas = getCobranSaasService();
     resultado.cobransaas = await cobransaas.testarConexao();
   } catch (erro) {
-    resultado.cobransaas = { status: 'falhou', detalhe: erro.message };
+    resultado.cobransaas = { status: 'falhou', detalhe: erro.message, corpo: erro.detalhe };
   }
 
   try {
