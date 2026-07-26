@@ -22,9 +22,11 @@ function getCobranSaasService() {
   } else {
     console.log('[CobranSaaS] Rodando contra a API real.');
     instancia = criarCobranSaasClient({
-      baseURL: config.cobransaas.baseURL,
+      proxyUrl: config.cobransaas.proxyUrl,
+      proxySecret: config.cobransaas.proxySecret,
+      codigoAplicativo: config.cobransaas.codigoAplicativo,
+      tokenAplicativo: config.cobransaas.tokenAplicativo,
       tenant: config.cobransaas.tenant,
-      appToken: config.cobransaas.appToken,
     });
   }
 
