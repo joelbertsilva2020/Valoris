@@ -14,9 +14,13 @@ module.exports = {
 
   cobransaas: {
     usarMock: process.env.COBRANSAAS_USE_MOCK !== 'false', // true por padrão
-    baseURL: process.env.COBRANSAAS_BASE_URL,
     tenant: process.env.COBRANSAAS_TENANT,
-    appToken: process.env.COBRANSAAS_APP_TOKEN,
+    // Autenticação OAuth2 real (código + token do aplicativo, do painel do CobranSaaS)
+    codigoAplicativo: process.env.COBRANSAAS_CODIGO_APLICATIVO,
+    tokenAplicativo: process.env.COBRANSAAS_TOKEN_APLICATIVO,
+    // Proxy PHP na HostGator — necessário porque o Vercel não tem IP fixo
+    proxyUrl: process.env.COBRANSAAS_PROXY_URL,
+    proxySecret: process.env.COBRANSAAS_PROXY_SECRET,
   },
 
   supabase: {
