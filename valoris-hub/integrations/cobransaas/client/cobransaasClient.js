@@ -1,21 +1,22 @@
 /**
- * Client real do CobranSaaS — v3.
+ * Client real do CobranSaaS — v4.
  *
- * Autenticação confirmada na documentação oficial: OAuth2 client_credentials
- * (POST /oauth/token com Basic Auth do código+token do aplicativo), token
- * Bearer válido por ~2h, com possibilidade de invalidação antecipada por
- * rotação de segredo (nesse caso, reautentica e tenta de novo uma vez).
+ * Endpoints confirmados na coleção Postman oficial "Assessorias" +
+ * artigos da central de ajuda (Obtendo os Clientes, Obtendo os Contratos
+ * de Clientes, Obtendo o Lote Ativo de Dívidas). Autenticação OAuth2
+ * client_credentials confirmada (Basic código:token no /oauth/token),
+ * chamadas via proxy PHP na HostGator (ver hostgator-proxy/).
  *
- * As chamadas passam pelo proxy PHP hospedado na HostGator (não pelo
- * CobranSaaS direto), porque o Vercel não tem IP de saída fixo e o
- * CobranSaaS exige IP liberado numa allowlist. Ver hostgator-proxy/.
- *
- * IMPORTANTE — pendente: os caminhos de dados (buscar contratos por CPF,
- * listar propostas, confirmar acordo, consultar acordo) ainda são
- * PLACEHOLDERS. A documentação recebida até agora cobre autenticação e
- * webhooks, não o CRUD de contratos/negociação (isso fica em "docs-api" ou
- * "docs-assessoria-api" no painel do CobranSaaS). Ajustar os caminhos
- * abaixo assim que essa documentação chegar.
+ * IMPORTANTE — pendente de decisão (não é bug, é design):
+ * "Simular"/"Efetivar" acordo NÃO recebem a dívida diretamente. Eles pedem
+ * um id de "negociação" (um modelo pré-configurado no painel do CobranSaaS,
+ * tipo "à vista" ou "6x sem juros") + um id de "meioPagamento", e devolvem
+ * os valores calculados para aquele cliente específico. Isso é diferente
+ * do que o Portal assume hoje (proposta calculada livremente por contrato).
+ * Antes de ligar de verdade a etapa de Propostas, precisamos decidir:
+ * listar as negociações disponíveis e simular cada uma pro cliente, ou
+ * simplificar de outra forma. listarPropostas() abaixo já usa o endpoint
+ * certo, mas ainda depende dessa conversa pra ficar 100%.
  */
 
 const axios = require('axios');
@@ -34,12 +35,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     baseURL: proxyUrl,
     timeout: 20000,
     headers: { 'X-Proxy-Secret': proxySecret, 'Content-Type': 'application/json' },
-    validateStatus: () => true, // tratamos o status manualmente abaixo
+    validateStatus: () => true,
   });
 
   async function chamarProxy({ method, path, headers = {}, body = null }) {
     const { data, status } = await proxy.post('', { method, path, headers, body });
-
     if (status >= 400) {
       const erro = new Error(`[CobranSaaS] Proxy/CobranSaaS retornou ${status}`);
       erro.status = status;
@@ -64,30 +64,19 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     });
 
     tokenAtual = resposta.access_token;
-    // Margem de segurança de 2 minutos antes do vencimento informado.
     expiraEm = Date.now() + (Number(resposta.expires_in) - 120) * 1000;
     return tokenAtual;
   }
 
   async function chamarComAutenticacao(opcoes) {
     const token = await obterToken();
-
     try {
-      return await chamarProxy({
-        ...opcoes,
-        headers: { ...opcoes.headers, Authorization: `Bearer ${token}` },
-      });
+      return await chamarProxy({ ...opcoes, headers: { ...opcoes.headers, Authorization: `Bearer ${token}` } });
     } catch (erro) {
-      // "Ainda que o token não tenha expirado, uma requisição pode ser
-      // recusada com 401 pois periodicamente atualizamos os segredos" —
-      // conforme a própria documentação do CobranSaaS. Reautentica 1x.
       if (erro.status === 401) {
         tokenAtual = null;
         const novoToken = await obterToken();
-        return chamarProxy({
-          ...opcoes,
-          headers: { ...opcoes.headers, Authorization: `Bearer ${novoToken}` },
-        });
+        return chamarProxy({ ...opcoes, headers: { ...opcoes.headers, Authorization: `Bearer ${novoToken}` } });
       }
       throw erro;
     }
@@ -99,28 +88,84 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       return { status: 'ok', modo: 'real', tenant };
     },
 
-    /** PLACEHOLDER — endpoint real ainda não confirmado. */
+    /**
+     * Busca o cliente pelo CPF/CNPJ (campo "cic") e, se encontrado, lista
+     * os contratos vinculados a ele.
+     */
     async buscarContratosPorCpf(cpf) {
-      return chamarComAutenticacao({ method: 'GET', path: `/api/clientes/${cpf}/contratos` });
+      const respostaClientes = await chamarComAutenticacao({
+        method: 'GET',
+        path: `/api/assessorias/clientes?cic=${encodeURIComponent(cpf)}`,
+      });
+
+      const clientes = respostaClientes.content || respostaClientes;
+      const cliente = Array.isArray(clientes) ? clientes[0] : null;
+
+      if (!cliente) {
+        const erro = new Error('Cliente não encontrado para este CPF/CNPJ.');
+        erro.status = 404;
+        throw erro;
+      }
+
+      const respostaContratos = await chamarComAutenticacao({
+        method: 'GET',
+        path: `/api/assessorias/contratos?cliente=${cliente.id}`,
+      });
+
+      const contratos = respostaContratos.content || respostaContratos;
+
+      return {
+        clienteId: cliente.id,
+        nome: cliente.nome,
+        contratos: (contratos || []).map((c) => ({
+          id: c.id,
+          numero: c.numeroContrato,
+          descricao: c.produto?.nome || 'Contrato',
+          valorAtualizado: c.saldoAtual,
+        })),
+      };
     },
 
-    /** PLACEHOLDER — endpoint real ainda não confirmado. */
+    /**
+     * PENDENTE DE DESIGN (ver comentário no topo do arquivo) — lista as
+     * negociações (modelos) disponíveis. Ainda falta decidir como isso
+     * vira "propostas" pro cliente final ver no Portal.
+     */
+    async listarNegociacoesDisponiveis() {
+      return chamarComAutenticacao({ method: 'GET', path: '/api/assessorias/negociacoes' });
+    },
+
+    /** PENDENTE — depende da conversa sobre negociação/meioPagamento. */
     async listarPropostas(contratoId) {
-      return chamarComAutenticacao({ method: 'GET', path: `/api/contratos/${contratoId}/propostas` });
+      throw new Error(
+        '[CobranSaaS] listarPropostas ainda não está ligado ao fluxo real — depende de decidir como mapear negociações/meiosPagamento em propostas. Ver comentário no topo do arquivo.'
+      );
     },
 
-    /** PLACEHOLDER — endpoint real ainda não confirmado. */
-    async confirmarAcordo(contratoId, propostaEscolhida) {
+    /**
+     * Efetiva o acordo de verdade. Formato do corpo confirmado na coleção
+     * oficial (cliente, negociacao, meioPagamento, parcelas com desconto,
+     * dados de parcelamento).
+     */
+    async confirmarAcordo(dadosAcordo) {
       return chamarComAutenticacao({
         method: 'POST',
-        path: `/api/contratos/${contratoId}/acordos`,
-        body: { proposta: propostaEscolhida },
+        path: '/api/assessorias/acordos/efetivar',
+        body: dadosAcordo,
       });
     },
 
-    /** PLACEHOLDER — endpoint real ainda não confirmado. */
-    async consultarAcordo(contratoId) {
-      return chamarComAutenticacao({ method: 'GET', path: `/api/contratos/${contratoId}/acordo` });
+    /**
+     * Consulta os acordos de um cliente, sempre ao vivo (nunca decidir
+     * status localmente).
+     */
+    async consultarAcordo(clienteId) {
+      const resposta = await chamarComAutenticacao({
+        method: 'GET',
+        path: `/api/assessorias/acordos?cliente=${clienteId}`,
+      });
+      const acordos = resposta.content || resposta;
+      return acordos && acordos.length > 0 ? acordos[0] : { existe: false };
     },
   };
 }
