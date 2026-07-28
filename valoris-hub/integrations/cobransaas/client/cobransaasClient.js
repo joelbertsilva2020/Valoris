@@ -1,22 +1,17 @@
 /**
- * Client real do CobranSaaS — v4.
+ * Client real do CobranSaaS — v5.
  *
- * Endpoints confirmados na coleção Postman oficial "Assessorias" +
- * artigos da central de ajuda (Obtendo os Clientes, Obtendo os Contratos
- * de Clientes, Obtendo o Lote Ativo de Dívidas). Autenticação OAuth2
- * client_credentials confirmada (Basic código:token no /oauth/token),
- * chamadas via proxy PHP na HostGator (ver hostgator-proxy/).
+ * Endpoints e formatos confirmados na coleção Postman oficial "Assessorias"
+ * + artigos da central de ajuda + documentação "Simular acordo"
+ * (POST /api/acordos/simular). Autenticação OAuth2 client_credentials
+ * confirmada (Basic código:token no /oauth/token), chamadas via proxy PHP
+ * na HostGator (ver hostgator-proxy/).
  *
- * IMPORTANTE — pendente de decisão (não é bug, é design):
- * "Simular"/"Efetivar" acordo NÃO recebem a dívida diretamente. Eles pedem
- * um id de "negociação" (um modelo pré-configurado no painel do CobranSaaS,
- * tipo "à vista" ou "6x sem juros") + um id de "meioPagamento", e devolvem
- * os valores calculados para aquele cliente específico. Isso é diferente
- * do que o Portal assume hoje (proposta calculada livremente por contrato).
- * Antes de ligar de verdade a etapa de Propostas, precisamos decidir:
- * listar as negociações disponíveis e simular cada uma pro cliente, ou
- * simplificar de outra forma. listarPropostas() abaixo já usa o endpoint
- * certo, mas ainda depende dessa conversa pra ficar 100%.
+ * IMPORTANTE: a API real identifica tudo por CLIENTE (clienteId), não por
+ * contrato — "simular", "efetivar" e "consultar acordo" recebem o cliente,
+ * não o contrato. Por isso o service/rotas/frontend precisam carregar o
+ * clienteId junto com o contratoId a partir da tela de Contratos (ver
+ * portalService.js).
  */
 
 const axios = require('axios');
@@ -82,6 +77,40 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     }
   }
 
+  /**
+   * Um "parcelamento" retornado pelo simular vira uma proposta pro Portal.
+   * numeroParcelas 1 (ou ausência de parcelas) = à vista.
+   */
+  function mapearParcelamentoParaProposta(negociacaoId, parcelamento) {
+    const ehAVista = !parcelamento.numeroParcelas || parcelamento.numeroParcelas <= 1;
+
+    if (ehAVista) {
+      return {
+        id: `${negociacaoId}_avista`,
+        tipo: 'a_vista',
+        valorTotal: parcelamento.valorTotal,
+        vencimentoMaximo: parcelamento.dataVencimento,
+      };
+    }
+
+    return {
+      id: `${negociacaoId}_${parcelamento.numeroParcelas}x`,
+      tipo: 'parcelado',
+      valorTotal: parcelamento.valorTotal,
+      entrada: parcelamento.valorEntrada
+        ? { valor: parcelamento.valorEntrada, vencimento: parcelamento.dataEmissao }
+        : undefined,
+      parcelas: (parcelamento.parcelas || []).map((p) => ({
+        numero: p.numeroParcela,
+        valor: p.valorTotal,
+        vencimento: p.dataVencimento,
+      })),
+      // guardado pra montar o corpo do "efetivar" depois, sem expor no front
+      _negociacaoId: negociacaoId,
+      _meioPagamentoId: parcelamento.meioPagamento?.id,
+    };
+  }
+
   return {
     async testarConexao() {
       await obterToken();
@@ -89,8 +118,10 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     },
 
     /**
-     * Busca o cliente pelo CPF/CNPJ (campo "cic") e, se encontrado, lista
-     * os contratos vinculados a ele.
+     * Busca o cliente pelo CPF/CNPJ (campo "cic") e lista os contratos
+     * vinculados. Cada contrato carrega o clienteId junto — necessário
+     * porque simular/efetivar/consultar acordo pedem o cliente, não o
+     * contrato.
      */
     async buscarContratosPorCpf(cpf) {
       const respostaClientes = await chamarComAutenticacao({
@@ -119,6 +150,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         nome: cliente.nome,
         contratos: (contratos || []).map((c) => ({
           id: c.id,
+          clienteId: cliente.id,
           numero: c.numeroContrato,
           descricao: c.produto?.nome || 'Contrato',
           valorAtualizado: c.saldoAtual,
@@ -126,46 +158,69 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       };
     },
 
-    /**
-     * PENDENTE DE DESIGN (ver comentário no topo do arquivo) — lista as
-     * negociações (modelos) disponíveis. Ainda falta decidir como isso
-     * vira "propostas" pro cliente final ver no Portal.
-     */
+    /** Lista as negociações (modelos) configuradas na conta. */
     async listarNegociacoesDisponiveis() {
-      return chamarComAutenticacao({ method: 'GET', path: '/api/assessorias/negociacoes' });
-    },
-
-    /** PENDENTE — depende da conversa sobre negociação/meioPagamento. */
-    async listarPropostas(contratoId) {
-      throw new Error(
-        '[CobranSaaS] listarPropostas ainda não está ligado ao fluxo real — depende de decidir como mapear negociações/meiosPagamento em propostas. Ver comentário no topo do arquivo.'
-      );
+      const resposta = await chamarComAutenticacao({ method: 'GET', path: '/api/assessorias/negociacoes' });
+      return resposta.content || resposta;
     },
 
     /**
-     * Efetiva o acordo de verdade. Formato do corpo confirmado na coleção
-     * oficial (cliente, negociacao, meioPagamento, parcelas com desconto,
-     * dados de parcelamento).
+     * Simula cada negociação disponível pro cliente e junta todos os
+     * parcelamentos retornados numa lista só de propostas.
      */
-    async confirmarAcordo(dadosAcordo) {
+    async listarPropostas(clienteId) {
+      const negociacoes = await this.listarNegociacoesDisponiveis();
+
+      const respostasSimulacao = await Promise.all(
+        negociacoes.map((negociacao) =>
+          chamarComAutenticacao({
+            method: 'POST',
+            path: '/api/assessorias/acordos/simular',
+            body: { cliente: clienteId, negociacao: negociacao.id },
+          }).catch(() => null) // uma negociação não aplicável ao cliente não deve derrubar as outras
+        )
+      );
+
+      let valorAtualizadoContrato = null;
+      const propostas = [];
+
+      respostasSimulacao.forEach((resposta, i) => {
+        if (!resposta) return;
+        if (valorAtualizadoContrato === null) valorAtualizadoContrato = resposta.valorDivida;
+        (resposta.parcelamentos || [])
+          .filter((p) => p.habilitado !== false)
+          .forEach((parcelamento) => {
+            propostas.push(mapearParcelamentoParaProposta(negociacoes[i].id, parcelamento));
+          });
+      });
+
+      return { valorAtualizadoContrato, propostas };
+    },
+
+    /**
+     * Efetiva o acordo de verdade. `proposta` é o objeto de proposta que
+     * veio de listarPropostas (já carrega _negociacaoId/_meioPagamentoId).
+     */
+    async confirmarAcordo(clienteId, proposta) {
       return chamarComAutenticacao({
         method: 'POST',
         path: '/api/assessorias/acordos/efetivar',
-        body: dadosAcordo,
+        body: {
+          cliente: clienteId,
+          negociacao: proposta._negociacaoId,
+          meioPagamento: proposta._meioPagamentoId,
+        },
       });
     },
 
-    /**
-     * Consulta os acordos de um cliente, sempre ao vivo (nunca decidir
-     * status localmente).
-     */
+    /** Consulta os acordos de um cliente, sempre ao vivo. */
     async consultarAcordo(clienteId) {
       const resposta = await chamarComAutenticacao({
         method: 'GET',
         path: `/api/assessorias/acordos?cliente=${clienteId}`,
       });
       const acordos = resposta.content || resposta;
-      return acordos && acordos.length > 0 ? acordos[0] : { existe: false };
+      return acordos && acordos.length > 0 ? { existe: true, ...acordos[0] } : { existe: false };
     },
   };
 }
