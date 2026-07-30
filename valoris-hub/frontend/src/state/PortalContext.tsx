@@ -2,11 +2,12 @@ import { createContext, useContext, useState, ReactNode } from 'react';
 
 export interface Contrato {
   id: string;
-  parceiroSlug: string;
+  clienteId: string;
+  parceiroSlug?: string;
   numero: string;
   descricao: string;
   valorAtualizado: number;
-  mensagem: string;
+  mensagem?: string;
 }
 
 export interface ParcelaProposta {
@@ -25,17 +26,29 @@ export interface Proposta {
   parcelas?: ParcelaProposta[];
 }
 
+export interface AcordoConfirmado {
+  acordoId: string;
+  linhaDigitavel?: string;
+  urlBoleto?: string;
+}
+
 interface PortalState {
   cpf: string | null;
   nome: string | null;
   contratos: Contrato[];
   contratoAtual: Contrato | null;
   propostaEscolhida: Proposta | null;
+  canalConfirmacao: string;
+  emailConfirmacao: string;
+  acordoConfirmado: AcordoConfirmado | null;
   setCpf: (cpf: string | null) => void;
   setNome: (nome: string | null) => void;
   setContratos: (contratos: Contrato[]) => void;
   setContratoAtual: (contrato: Contrato | null) => void;
   setPropostaEscolhida: (proposta: Proposta | null) => void;
+  setCanalConfirmacao: (canal: string) => void;
+  setEmailConfirmacao: (email: string) => void;
+  setAcordoConfirmado: (acordo: AcordoConfirmado | null) => void;
   reiniciar: () => void;
 }
 
@@ -47,6 +60,9 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [contratoAtual, setContratoAtual] = useState<Contrato | null>(null);
   const [propostaEscolhida, setPropostaEscolhida] = useState<Proposta | null>(null);
+  const [canalConfirmacao, setCanalConfirmacao] = useState<string>('email');
+  const [emailConfirmacao, setEmailConfirmacao] = useState<string>('');
+  const [acordoConfirmado, setAcordoConfirmado] = useState<AcordoConfirmado | null>(null);
 
   const reiniciar = () => {
     setCpf(null);
@@ -54,13 +70,18 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     setContratos([]);
     setContratoAtual(null);
     setPropostaEscolhida(null);
+    setCanalConfirmacao('email');
+    setEmailConfirmacao('');
+    setAcordoConfirmado(null);
   };
 
   return (
     <PortalContext.Provider
       value={{
         cpf, nome, contratos, contratoAtual, propostaEscolhida,
+        canalConfirmacao, emailConfirmacao, acordoConfirmado,
         setCpf, setNome, setContratos, setContratoAtual, setPropostaEscolhida,
+        setCanalConfirmacao, setEmailConfirmacao, setAcordoConfirmado,
         reiniciar,
       }}
     >
