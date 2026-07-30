@@ -3,8 +3,9 @@ import Layout from './components/Layout';
 import Home from './pages/Home';
 import NaoEncontrado from './pages/NaoEncontrado';
 import Contratos from './pages/Contratos';
-import Propostas from './pages/Propostas';
-import Checkout from './pages/Checkout';
+import Negociacao from './pages/Negociacao';
+import ConfirmarAcordo from './pages/ConfirmarAcordo';
+import Sucesso from './pages/Sucesso';
 import MeuAcordo from './pages/MeuAcordo';
 import Seguranca from './pages/Seguranca';
 import CentralAjuda from './pages/CentralAjuda';
@@ -19,8 +20,9 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/nao-encontrado" element={<NaoEncontrado />} />
         <Route path="/contratos" element={<Contratos />} />
-        <Route path="/propostas" element={<Propostas />} />
-        <Route path="/checkout" element={<Checkout />} />
+        <Route path="/negociacao" element={<Negociacao />} />
+        <Route path="/confirmar-acordo" element={<ConfirmarAcordo />} />
+        <Route path="/sucesso" element={<Sucesso />} />
         <Route path="/meu-acordo" element={<MeuAcordo />} />
         <Route path="/seguranca" element={<Seguranca />} />
         <Route path="/central-de-ajuda" element={<CentralAjuda />} />
