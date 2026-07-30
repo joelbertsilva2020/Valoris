@@ -2,11 +2,16 @@
  * Serviço central do Portal do Cliente.
  *
  * Regras de negócio impostas pela especificação (não violar):
- * - Nenhum acordo é criado ao escolher uma proposta — só no checkout final.
+ * - Nenhum acordo é criado ao escolher uma proposta — só na confirmação final.
  * - O Percentual de Economia é o único cálculo feito pelo Valoris Hub,
  *   sempre em cima de valores que o CobranSaaS já retornou.
  * - Status de acordo/parcelas é sempre consultado ao vivo no CobranSaaS,
  *   nunca decidido por dado local.
+ *
+ * CORREÇÃO (integração real v5): a API do CobranSaaS identifica negociação,
+ * simulação, efetivação e consulta de acordo pelo CLIENTE (clienteId), não
+ * pelo contrato. O contratoId continua existindo só pra exibição/telemetria
+ * — todas as chamadas ao cobransaasClient usam clienteId.
  */
 
 const { getCobranSaasService } = require('./cobransaasService');
@@ -117,6 +122,9 @@ async function validarRetorno(cpfBruto, dataNascimento) {
 
 // ---------------------------------------------------------------------------
 // 3. Lista de contratos
+//    Cada contrato já vem com o clienteId do CobranSaaS (ver
+//    cobransaasClient.buscarContratosPorCpf) — o front carrega esse
+//    clienteId pro resto da jornada.
 // ---------------------------------------------------------------------------
 async function listarContratos(cpfBruto) {
   const cpf = limparCpf(cpfBruto);
@@ -138,13 +146,19 @@ async function listarContratos(cpfBruto) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Propostas
+// 4. Propostas — simuladas em cima do CLIENTE, não do contrato
 // ---------------------------------------------------------------------------
-async function listarPropostas(contratoId, cpf) {
+async function listarPropostas({ clienteId, contratoId, cpf }) {
+  if (!clienteId) {
+    const erro = new Error('clienteId é obrigatório para simular propostas.');
+    erro.status = 400;
+    throw erro;
+  }
+
   const cobransaas = getCobranSaasService();
 
   const resposta = await comTimeout(
-    cobransaas.listarPropostas(contratoId),
+    cobransaas.listarPropostas(clienteId),
     TIMEOUT_MS,
     'CobranSaaS (listar propostas)'
   );
@@ -154,51 +168,74 @@ async function listarPropostas(contratoId, cpf) {
     percentualEconomia: calcularPercentualEconomia(resposta.valorAtualizadoContrato, proposta.valorTotal),
   }));
 
-  await registrarEvento('proposta_visualizada', { cpf, detalhe: { contratoId } });
+  await registrarEvento('proposta_visualizada', { cpf, detalhe: { clienteId, contratoId } });
 
   return {
+    clienteId,
     contratoId,
     valorAtualizadoContrato: resposta.valorAtualizadoContrato,
     propostas: propostasComEconomia,
   };
 }
 
-async function registrarEscolhaProposta(contratoId, propostaId, cpf) {
-  await registrarEvento('proposta_escolhida', { cpf, detalhe: { contratoId, propostaId } });
+async function registrarEscolhaProposta({ clienteId, contratoId, propostaId, cpf }) {
+  await registrarEvento('proposta_escolhida', { cpf, detalhe: { clienteId, contratoId, propostaId } });
 }
 
 // ---------------------------------------------------------------------------
-// 7. Efetivação — único ponto que cria o acordo de verdade
+// 6/7. Confirmação — grava o canal de contato escolhido e só então efetiva
+//      o acordo de verdade no CobranSaaS. Único ponto que cria o acordo.
 // ---------------------------------------------------------------------------
-async function confirmarAcordo({ contratoId, propostaEscolhida, cpf }) {
+async function confirmarAcordo({ clienteId, contratoId, propostaEscolhida, canal, email, cpf }) {
+  if (!clienteId || !propostaEscolhida) {
+    const erro = new Error('Dados insuficientes para confirmar o acordo.');
+    erro.status = 400;
+    throw erro;
+  }
+
   const cobransaas = getCobranSaasService();
+  const supabase = getSupabase();
+
+  // Guarda o e-mail de contato escolhido nessa confirmação — não bloqueia
+  // a efetivação se falhar, só loga.
+  if (email) {
+    const cpfLimpo = limparCpf(cpf);
+    await supabase
+      .from('clientes')
+      .update({ email, atualizado_em: new Date().toISOString() })
+      .eq('cpf', cpfLimpo)
+      .then(null, (erro) => console.error('[Portal] Falha ao atualizar e-mail de contato:', erro.message));
+  }
 
   const resultado = await comTimeout(
-    cobransaas.confirmarAcordo(contratoId, propostaEscolhida),
+    cobransaas.confirmarAcordo(clienteId, propostaEscolhida),
     TIMEOUT_MS,
     'CobranSaaS (efetivar acordo)'
   );
 
-  await registrarEvento('acordo_efetivado', { cpf, detalhe: { contratoId, acordoId: resultado.acordoId } });
+  await registrarEvento('acordo_efetivado', {
+    cpf,
+    detalhe: { clienteId, contratoId, canal, acordoId: resultado.acordoId || resultado.id },
+  });
 
   return resultado;
 }
 
 // ---------------------------------------------------------------------------
-// 9. Meu Acordo — sempre consultado ao vivo
+// 9. Meu Acordo — sempre consultado ao vivo, pelo cliente
 // ---------------------------------------------------------------------------
-async function consultarMeuAcordo(contratoId) {
+async function consultarMeuAcordo(clienteId) {
   const cobransaas = getCobranSaasService();
 
   return comTimeout(
-    cobransaas.consultarAcordo(contratoId),
+    cobransaas.consultarAcordo(clienteId),
     TIMEOUT_MS,
     'CobranSaaS (consultar acordo)'
   );
 }
 
 // ---------------------------------------------------------------------------
-// 10. Próximos acessos — decide para onde mandar o cliente
+// 10. Próximos acessos — decide pra onde mandar o cliente
 // ---------------------------------------------------------------------------
 async function decidirProximoPasso(cpfBruto, contratos) {
   const cobransaas = getCobranSaasService();
@@ -207,18 +244,15 @@ async function decidirProximoPasso(cpfBruto, contratos) {
   // MVP: só um parceiro/contrato por CPF. Verifica o primeiro contrato.
   const contrato = contratos[0];
   const acordo = await comTimeout(
-    cobransaas.consultarAcordo(contrato.id),
+    cobransaas.consultarAcordo(contrato.clienteId),
     TIMEOUT_MS,
     'CobranSaaS (consultar acordo — retorno)'
   );
 
   if (acordo.existe && acordo.status === 'ativo') {
-    return { destino: 'meu-acordo', contratoId: contrato.id };
+    return { destino: 'meu-acordo', clienteId: contrato.clienteId, contratoId: contrato.id };
   }
-  if (acordo.existe && acordo.status === 'cancelado') {
-    return { destino: 'propostas', contratoId: contrato.id };
-  }
-  return { destino: 'propostas', contratoId: contrato.id };
+  return { destino: 'negociacao', clienteId: contrato.clienteId, contratoId: contrato.id };
 }
 
 async function registrarAbandono(cpf, etapa) {
