@@ -6,11 +6,14 @@ const router = express.Router();
 
 function tratarErro(res, contexto, erro) {
   console.error(`[Portal] Erro em ${contexto}:`, erro.message);
-  const status = erro.status === 404 ? 404 : 500;
+  const status = erro.status === 404 ? 404 : erro.status === 400 ? 400 : 500;
   res.status(status).json({
-    erro: status === 404
-      ? 'Não encontramos essa informação.'
-      : 'Não foi possível concluir agora. Tente novamente em instantes.',
+    erro:
+      status === 404
+        ? 'Não encontramos essa informação.'
+        : status === 400
+        ? erro.message
+        : 'Não foi possível concluir agora. Tente novamente em instantes.',
   });
 }
 
@@ -56,7 +59,7 @@ router.post('/validar-retorno', async (req, res) => {
   }
 });
 
-// 3. Lista de contratos
+// 3. Lista de contratos (cada contrato já vem com clienteId)
 router.post('/contratos', async (req, res) => {
   try {
     const { cpf } = req.body;
@@ -68,49 +71,57 @@ router.post('/contratos', async (req, res) => {
   }
 });
 
-// 4. Propostas de um contrato
+// 4. Propostas — simuladas em cima do clienteId
 router.post('/propostas', async (req, res) => {
   try {
-    const { contratoId, cpf } = req.body;
-    if (!contratoId) return res.status(400).json({ erro: 'Contrato não informado.' });
-    const resultado = await portalService.listarPropostas(contratoId, cpf);
+    const { clienteId, contratoId, cpf } = req.body;
+    if (!clienteId) return res.status(400).json({ erro: 'Cliente não informado.' });
+    const resultado = await portalService.listarPropostas({ clienteId, contratoId, cpf });
     res.json(resultado);
   } catch (erro) {
     tratarErro(res, 'propostas', erro);
   }
 });
 
-// Registrar escolha da proposta (antes do checkout) — só telemetria
+// Registrar escolha da proposta (antes da confirmação) — só telemetria
 router.post('/escolher-proposta', async (req, res) => {
   try {
-    const { contratoId, propostaId, cpf } = req.body;
-    await portalService.registrarEscolhaProposta(contratoId, propostaId, cpf);
+    const { clienteId, contratoId, propostaId, cpf } = req.body;
+    await portalService.registrarEscolhaProposta({ clienteId, contratoId, propostaId, cpf });
     res.json({ ok: true });
   } catch (erro) {
     tratarErro(res, 'escolher-proposta', erro);
   }
 });
 
-// 7. Efetivação — único ponto que cria o acordo de verdade
+// 6/7. Confirmar Acordo — recebe canal + e-mail da Tela 6 e efetiva no
+// CobranSaaS. Único ponto que cria o acordo de verdade.
 router.post('/confirmar-acordo', async (req, res) => {
   try {
-    const { contratoId, propostaEscolhida, cpf } = req.body;
-    if (!contratoId || !propostaEscolhida) {
+    const { clienteId, contratoId, propostaEscolhida, canal, email, cpf } = req.body;
+    if (!clienteId || !propostaEscolhida) {
       return res.status(400).json({ erro: 'Dados insuficientes para confirmar o acordo.' });
     }
-    const resultado = await portalService.confirmarAcordo({ contratoId, propostaEscolhida, cpf });
+    const resultado = await portalService.confirmarAcordo({
+      clienteId,
+      contratoId,
+      propostaEscolhida,
+      canal,
+      email,
+      cpf,
+    });
     res.json(resultado);
   } catch (erro) {
     tratarErro(res, 'confirmar-acordo', erro);
   }
 });
 
-// 9. Meu Acordo — sempre ao vivo
+// 9. Meu Acordo / Acordos em andamento — sempre ao vivo, pelo clienteId
 router.post('/meu-acordo', async (req, res) => {
   try {
-    const { contratoId } = req.body;
-    if (!contratoId) return res.status(400).json({ erro: 'Contrato não informado.' });
-    const resultado = await portalService.consultarMeuAcordo(contratoId);
+    const { clienteId } = req.body;
+    if (!clienteId) return res.status(400).json({ erro: 'Cliente não informado.' });
+    const resultado = await portalService.consultarMeuAcordo(clienteId);
     res.json(resultado);
   } catch (erro) {
     tratarErro(res, 'meu-acordo', erro);
