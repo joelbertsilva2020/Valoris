@@ -20,6 +20,16 @@ export default {
           DEFAULT: '#F4F3FA',
           suave: '#9C97B5',
         },
+        // Tokens do tema claro — usados só nas telas da jornada de
+        // negociação (painel claro estilo Cobmais), nunca no site
+        // institucional escuro.
+        claro: {
+          bg: '#F1F1F7',
+          superficie: '#FFFFFF',
+          linha: '#E6E5F0',
+          texto: '#1D1B2E',
+          suave: '#6E6B85',
+        },
       },
       fontFamily: {
         display: ['"Space Grotesk"', 'Inter', 'sans-serif'],
