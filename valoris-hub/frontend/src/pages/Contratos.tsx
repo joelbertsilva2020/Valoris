@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, FileText } from 'lucide-react';
 import { usePortal, Contrato } from '../state/PortalContext';
 import { formatarMoeda } from '../lib/cpf';
+import PortalPainel from '../components/PortalPainel';
 
 export default function Contratos() {
   const navigate = useNavigate();
@@ -12,45 +13,49 @@ export default function Contratos() {
     return null;
   }
 
-  function abrirPropostas(contrato: Contrato) {
+  function abrirNegociacao(contrato: Contrato) {
     setContratoAtual(contrato);
-    navigate('/propostas');
+    navigate('/negociacao');
   }
 
   return (
-    <div>
-      <span className="inline-flex items-center gap-2 text-xs font-mono uppercase tracking-wide text-roxo-claro bg-roxo/10 border border-roxo/25 rounded-full px-3 py-1.5 mb-5">
-        Suas pendências
-      </span>
-      <h1 className="font-display font-semibold text-3xl text-texto mb-3">
-        {nome ? `Olá, ${nome.split(' ')[0]}. Veja o que encontramos.` : 'Veja o que encontramos.'}
-      </h1>
-      <p className="text-texto-suave mb-8">Escolha um contrato para ver as propostas disponíveis.</p>
+    <PortalPainel rotulo="Suas pendências" titulo={nome ? `Olá, ${nome.split(' ')[0]}` : 'Contratos em aberto'}>
+      <p className="text-claro-suave mb-7 text-sm sm:text-base">
+        Encontramos {contratos.length === 1 ? 'uma pendência' : `${contratos.length} pendências`} no seu CPF.
+        Escolha um contrato para ver as condições de negociação.
+      </p>
 
       <div className="space-y-3">
         {contratos.map((contrato) => (
           <button
             key={contrato.id}
-            onClick={() => abrirPropostas(contrato)}
-            className="card-vidro card-vidro-hover w-full flex items-center justify-between gap-4 p-5 text-left"
+            onClick={() => abrirNegociacao(contrato)}
+            className="w-full flex items-center justify-between gap-4 p-5 text-left bg-claro-superficie border border-claro-linha rounded-xl transition-all hover:border-roxo/40 hover:shadow-[0_4px_20px_rgba(108,59,255,0.12)]"
           >
-            <div className="flex gap-4 items-start">
-              <span className="w-11 h-9 rounded-lg bg-white flex items-center justify-center flex-shrink-0 p-1.5">
-                <img src="/parceiros/nosso-pay.png" alt="Nosso Pay" className="max-w-full max-h-full object-contain" />
+            <div className="flex gap-4 items-start min-w-0">
+              <span className="w-10 h-10 rounded-lg bg-grad-marca flex items-center justify-center flex-shrink-0">
+                <FileText size={18} className="text-white" strokeWidth={2} />
               </span>
-              <div>
-                <p className="font-semibold text-texto">{contrato.descricao}</p>
-                <p className="text-sm text-texto-suave">Contrato {contrato.numero}</p>
-                <p className="text-sm text-azul mt-1.5">{contrato.mensagem}</p>
+              <div className="min-w-0">
+                <p className="font-semibold text-claro-texto truncate">{contrato.descricao}</p>
+                <p className="text-sm text-claro-suave">Contrato {contrato.numero}</p>
+                {contrato.mensagem && (
+                  <p className="text-sm text-roxo mt-1.5">{contrato.mensagem}</p>
+                )}
               </div>
             </div>
             <div className="text-right flex items-center gap-2 flex-shrink-0">
-              <span className="font-mono text-lg text-texto">{formatarMoeda(contrato.valorAtualizado)}</span>
-              <ChevronRight size={18} className="text-texto-suave" />
+              <div>
+                <p className="text-[11px] text-claro-suave uppercase tracking-wide">Valor atualizado</p>
+                <span className="font-mono text-base sm:text-lg text-claro-texto">
+                  {formatarMoeda(contrato.valorAtualizado)}
+                </span>
+              </div>
+              <ChevronRight size={18} className="text-claro-suave" />
             </div>
           </button>
         ))}
       </div>
-    </div>
+    </PortalPainel>
   );
 }
