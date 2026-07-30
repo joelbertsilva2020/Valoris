@@ -35,7 +35,7 @@ export default function MeuAcordo() {
       navigate('/');
       return;
     }
-    chamarApi<AcordoResposta>('/meu-acordo', { contratoId: contratoAtual.id })
+    chamarApi<AcordoResposta>('/meu-acordo', { clienteId: contratoAtual.clienteid })
       .then(setAcordo)
       .catch((e) => setErro(e.message));
   }, [contratoAtual]);
