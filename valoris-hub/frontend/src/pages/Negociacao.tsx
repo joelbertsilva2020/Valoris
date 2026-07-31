@@ -166,29 +166,29 @@ export default function Negociacao() {
               )}
             </div>
 
-            {propostas.length === 0 && (
-              <div className="space-y-3">
-                <p className="text-claro-suave text-sm">Nenhuma condição de negociação disponível para este contrato no momento.</p>
-                {diagnostico && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-xs text-amber-800 font-mono space-y-1.5">
-                    <p className="font-sans font-semibold text-amber-900">Diagnóstico (temporário):</p>
-                    <p>{diagnostico.totalNegociacoesConfiguradas} negociação(ões) configurada(s).</p>
-                    {diagnostico.tentativas.map((t) => (
-                      <div key={t.negociacaoId} className="space-y-1">
-                        <p>
-                          {t.negociacaoNome || t.negociacaoId}:{' '}
-                          {t.ok
-                            ? `${t.parcelamentosGerados} parcelamento(s) gerado(s) (${t.totalParcelamentosNaResposta} na resposta antes do filtro), valorDivida=${t.valorDivida}`
-                            : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
-                        </p>
-                        {t.ok && (
-                          <p className="break-all opacity-80">resposta: {JSON.stringify(t.respostaCompleta)}</p>
-                        )}
-                      </div>
-                    ))}
+            {diagnostico && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-xs text-amber-800 font-mono space-y-1.5 mb-5">
+                <p className="font-sans font-semibold text-amber-900">Diagnóstico (temporário):</p>
+                <p>{diagnostico.totalNegociacoesConfiguradas} negociação(ões) configurada(s).</p>
+                {diagnostico.tentativas.map((t) => (
+                  <div key={t.negociacaoId} className="space-y-1">
+                    <p>
+                      {t.negociacaoNome || t.negociacaoId}:{' '}
+                      {t.ok
+                        ? `${t.parcelamentosGerados} parcelamento(s) gerado(s) (${t.totalParcelamentosNaResposta} na resposta antes do filtro), valorDivida=${t.valorDivida}`
+                        : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
+                    </p>
+                    {t.corpoEnviado && <p className="break-all opacity-70">enviado: {JSON.stringify(t.corpoEnviado)}</p>}
+                    {t.ok && (
+                      <p className="break-all opacity-80">resposta: {JSON.stringify(t.respostaCompleta)}</p>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
+            )}
+
+            {propostas.length === 0 && (
+              <p className="text-claro-suave text-sm">Nenhuma condição de negociação disponível para este contrato no momento.</p>
             )}
 
             {/* Opção à vista */}
