@@ -24,7 +24,12 @@ export default function PortalPainel({ rotulo, titulo, acaoTopo, children }: Por
           )}
           <h1 className="text-white font-display font-semibold text-xl sm:text-2xl">{titulo}</h1>
         </div>
-        {acaoTopo}
+        <div className="flex flex-col items-end gap-2 flex-shrink-0">
+          <span className="bg-white rounded-lg h-11 px-3 flex items-center shadow-sm">
+            <img src="/parceiros/nosso-pay.png" alt="Nosso Pay" className="h-7 w-auto object-contain" />
+          </span>
+          {acaoTopo}
+        </div>
       </div>
       <div className="bg-claro-bg px-5 py-7 sm:px-8 sm:py-9">{children}</div>
     </div>
