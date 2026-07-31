@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Loader2, AlertCircle, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { usePortal } from '../state/PortalContext';
 import { chamarApi } from '../lib/api';
 import { formatarMoeda } from '../lib/cpf';
@@ -58,7 +58,18 @@ export default function ConfirmarAcordo() {
   }
 
   return (
-    <PortalPainel rotulo="Última etapa" titulo="Confirmar Acordo">
+    <PortalPainel
+      rotulo="Última etapa"
+      titulo="Confirmar Acordo"
+      acaoTopo={
+        <button
+          onClick={() => navigate('/revisar-acordo')}
+          className="flex items-center gap-1.5 text-sm text-white/85 hover:text-white transition-colors flex-shrink-0"
+        >
+          <ArrowLeft size={15} /> Voltar
+        </button>
+      }
+    >
       <p className="text-claro-suave text-sm mb-6">
         Para finalizar o acordo, preencha os campos abaixo e confirme.
       </p>
