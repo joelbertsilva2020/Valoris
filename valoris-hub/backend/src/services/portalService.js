@@ -177,7 +177,7 @@ async function listarPropostas({ clienteId, contratoId, cpf }) {
     propostas: propostasComEconomia,
     // Temporário: só ajuda a investigar por que um cliente não tem
     // propostas. Remover depois que o motivo for confirmado.
-    diagnostico: propostasComEconomia.length === 0 ? resposta.diagnostico : undefined,
+    diagnostico: resposta.diagnostico,
   };
 }
 
@@ -255,7 +255,7 @@ async function decidirProximoPasso(cpfBruto, contratos) {
   if (acordo.existe && acordo.status === 'ativo') {
     return { destino: 'meu-acordo', clienteId: contrato.clienteId, contratoId: contrato.id };
   }
-  return { destino: 'negociacao', clienteId: contrato.clienteId, contratoId: contrato.id };
+  return { destino: 'contratos', clienteId: contrato.clienteId, contratoId: contrato.id };
 }
 
 async function registrarAbandono(cpf, etapa) {
