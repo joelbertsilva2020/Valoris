@@ -11,7 +11,11 @@ interface DiagnosticoTentativa {
   negociacaoId: string;
   negociacaoNome?: string;
   ok: boolean;
+  corpoEnviado?: unknown;
   parcelamentosGerados?: number;
+  totalParcelamentosNaResposta?: number;
+  valorDivida?: number;
+  respostaCompleta?: unknown;
   status?: number | null;
   detalhe?: unknown;
 }
@@ -96,7 +100,7 @@ export default function Negociacao() {
       propostaId: selecionada.id,
       cpf,
     }).catch(() => {});
-    navigate('/confirmar-acordo');
+    navigate('/revisar-acordo');
   }
 
   return (
@@ -170,12 +174,17 @@ export default function Negociacao() {
                     <p className="font-sans font-semibold text-amber-900">Diagnóstico (temporário):</p>
                     <p>{diagnostico.totalNegociacoesConfiguradas} negociação(ões) configurada(s).</p>
                     {diagnostico.tentativas.map((t) => (
-                      <p key={t.negociacaoId}>
-                        {t.negociacaoNome || t.negociacaoId}:{' '}
-                        {t.ok
-                          ? `${t.parcelamentosGerados} parcelamento(s) gerado(s)`
-                          : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
-                      </p>
+                      <div key={t.negociacaoId} className="space-y-1">
+                        <p>
+                          {t.negociacaoNome || t.negociacaoId}:{' '}
+                          {t.ok
+                            ? `${t.parcelamentosGerados} parcelamento(s) gerado(s) (${t.totalParcelamentosNaResposta} na resposta antes do filtro), valorDivida=${t.valorDivida}`
+                            : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
+                        </p>
+                        {t.ok && (
+                          <p className="break-all opacity-80">resposta: {JSON.stringify(t.respostaCompleta)}</p>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -191,7 +200,7 @@ export default function Negociacao() {
                     selecionada={p.id === selecionadaId}
                     onSelecionar={() => setSelecionadaId(p.id)}
                     titulo={`Pagamento único — ${formatarMoeda(p.valorTotal)}`}
-                    subtitulo={p.vencimentoMaximo ? `Vencimento até ${formatarData(p.vencimentoMaximo)}` : undefined}
+                    detalhe={p.vencimentoMaximo ? `Vencimento até ${formatarData(p.vencimentoMaximo)}` : undefined}
                     economia={p.percentualEconomia}
                   />
                 ))}
@@ -202,15 +211,20 @@ export default function Negociacao() {
             {forma === 'parcelado' && (
               <div className="space-y-2.5">
                 {propostasParceladas.map((p) => {
-                  const qtd = p.parcelas?.length || 1;
-                  const valorParcela = p.parcelas?.[0]?.valor ?? p.valorTotal / qtd;
+                  const qtdParcelas = p.parcelas?.length || 0;
+                  const valorParcela = p.parcelas?.[0]?.valor ?? p.valorTotal / (qtdParcelas || 1);
+                  const totalPagamentos = qtdParcelas + (p.entrada ? 1 : 0);
+                  const detalhe = p.entrada
+                    ? `Entrada de ${formatarMoeda(p.entrada.valor)} até ${formatarData(p.entrada.vencimento)} + ${qtdParcelas}x de ${formatarMoeda(valorParcela)}`
+                    : undefined;
                   return (
                     <OpcaoProposta
                       key={p.id}
                       selecionada={p.id === selecionadaId}
                       onSelecionar={() => setSelecionadaId(p.id)}
-                      titulo={`${qtd}x de ${formatarMoeda(valorParcela)}`}
-                      subtitulo={`Total ${formatarMoeda(p.valorTotal)}${p.entrada ? ` + entrada de ${formatarMoeda(p.entrada.valor)}` : ''}`}
+                      titulo={`${totalPagamentos}x de ${formatarMoeda(valorParcela)}`}
+                      detalhe={detalhe}
+                      total={formatarMoeda(p.valorTotal)}
                       economia={p.percentualEconomia}
                     />
                   );
@@ -259,13 +273,15 @@ function OpcaoProposta({
   selecionada,
   onSelecionar,
   titulo,
-  subtitulo,
+  detalhe,
+  total,
   economia,
 }: {
   selecionada: boolean;
   onSelecionar: () => void;
   titulo: string;
-  subtitulo?: string;
+  detalhe?: string;
+  total?: string;
   economia: number | null;
 }) {
   return (
@@ -285,7 +301,8 @@ function OpcaoProposta({
         </span>
         <div className="min-w-0">
           <p className="font-medium text-claro-texto truncate">{titulo}</p>
-          {subtitulo && <p className="text-sm text-claro-suave">{subtitulo}</p>}
+          {detalhe && <p className="text-sm text-claro-suave">{detalhe}</p>}
+          {total && <p className="text-sm text-claro-texto font-mono mt-0.5">Total {total}</p>}
         </div>
       </div>
       {economia !== null && economia > 0 && (
