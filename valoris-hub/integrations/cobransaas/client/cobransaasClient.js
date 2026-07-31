@@ -13,12 +13,16 @@
  * clienteId junto com o contratoId a partir da tela de Contratos (ver
  * portalService.js).
  *
- * CORREÇÃO: quando o CPF/CNPJ não tem cliente cadastrado no CobranSaaS,
- * isso NÃO é um erro — é um resultado normal de "nenhuma pendência",
- * igual ao caso de cliente existente sem contratos. Antes isso lançava
- * uma exceção 404 que o Portal exibia como mensagem de erro genérica; agora
- * devolve o mesmo formato vazio, e o Portal já sabe levar o cliente pra
- * tela "Nenhuma oportunidade encontrada" (ver portalService.consultarCpf).
+ * CPF sem cliente cadastrado no CobranSaaS NÃO é erro — devolve resultado
+ * vazio, igual ao caso de cliente existente sem contratos (ver
+ * buscarContratosPorCpf).
+ *
+ * DIAGNÓSTICO TEMPORÁRIO: listarPropostas também devolve um array
+ * `diagnostico` com o resultado de cada negociação simulada (sucesso,
+ * quantas propostas gerou, ou o erro/motivo de não ter gerado nenhuma).
+ * Serve pra investigar casos como "cliente com acordo em condições de
+ * negociar mas nenhuma proposta aparece". Pode ser removido depois que
+ * o motivo for confirmado.
  */
 
 const axios = require('axios');
@@ -176,10 +180,13 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
 
     /**
      * Simula cada negociação disponível pro cliente e junta todos os
-     * parcelamentos retornados numa lista só de propostas.
+     * parcelamentos retornados numa lista só de propostas. Também monta
+     * um diagnóstico de cada tentativa (temporário, pra investigação).
      */
     async listarPropostas(clienteId) {
       const negociacoes = await this.listarNegociacoesDisponiveis();
+
+      const diagnostico = [];
 
       const respostasSimulacao = await Promise.all(
         negociacoes.map((negociacao) =>
@@ -187,7 +194,32 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
             method: 'POST',
             path: '/api/assessorias/acordos/simular',
             body: { cliente: clienteId, negociacao: negociacao.id },
-          }).catch(() => null) // uma negociação não aplicável ao cliente não deve derrubar as outras
+          })
+            .then((resposta) => {
+              const qtdParcelamentos = (resposta.parcelamentos || []).filter((p) => p.habilitado !== false).length;
+              diagnostico.push({
+                negociacaoId: negociacao.id,
+                negociacaoNome: negociacao.nome || negociacao.descricao,
+                ok: true,
+                parcelamentosGerados: qtdParcelamentos,
+              });
+              return resposta;
+            })
+            .catch((erro) => {
+              diagnostico.push({
+                negociacaoId: negociacao.id,
+                negociacaoNome: negociacao.nome || negociacao.descricao,
+                ok: false,
+                status: erro.status || null,
+                detalhe: erro.detalhe || erro.message,
+              });
+              console.error(
+                `[CobranSaaS] Falha ao simular negociação ${negociacao.id} pro cliente ${clienteId}:`,
+                erro.status,
+                JSON.stringify(erro.detalhe || erro.message)
+              );
+              return null;
+            })
         )
       );
 
@@ -204,7 +236,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
           });
       });
 
-      return { valorAtualizadoContrato, propostas };
+      return {
+        valorAtualizadoContrato,
+        propostas,
+        diagnostico: { totalNegociacoesConfiguradas: negociacoes.length, tentativas: diagnostico },
+      };
     },
 
     /**
