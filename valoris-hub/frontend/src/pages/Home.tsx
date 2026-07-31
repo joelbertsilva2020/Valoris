@@ -126,7 +126,7 @@ export default function Home() {
       if (proximo.destino === 'meu-acordo') {
         navigate('/meu-acordo');
       } else {
-        navigate('/negociacao');
+        navigate('/contratos');
       }
     } catch (e: any) {
       setErroModal(e.message);
