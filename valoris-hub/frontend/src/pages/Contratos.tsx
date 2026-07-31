@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, FileText } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { usePortal, Contrato } from '../state/PortalContext';
 import { formatarMoeda } from '../lib/cpf';
 import PortalPainel from '../components/PortalPainel';
@@ -33,10 +33,11 @@ export default function Contratos() {
             className="w-full flex items-center justify-between gap-4 p-5 text-left bg-claro-superficie border border-claro-linha rounded-xl transition-all hover:border-roxo/40 hover:shadow-[0_4px_20px_rgba(108,59,255,0.12)]"
           >
             <div className="flex gap-4 items-start min-w-0">
-              <span className="w-10 h-10 rounded-lg bg-grad-marca flex items-center justify-center flex-shrink-0">
-                <FileText size={18} className="text-white" strokeWidth={2} />
+              <span className="w-10 h-10 rounded-lg bg-white border border-claro-linha flex items-center justify-center flex-shrink-0 overflow-hidden p-1.5">
+                <img src="/parceiros/nosso-pay.png" alt="Nosso Pay" className="w-full h-full object-contain" />
               </span>
               <div className="min-w-0">
+                <p className="text-xs font-mono uppercase tracking-wide text-claro-suave mb-0.5">Nosso Pay</p>
                 <p className="font-semibold text-claro-texto truncate">{contrato.descricao}</p>
                 <p className="text-sm text-claro-suave">Contrato {contrato.numero}</p>
                 {contrato.mensagem && (
