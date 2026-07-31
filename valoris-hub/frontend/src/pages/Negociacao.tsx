@@ -1,11 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Loader2, AlertCircle } from 'lucide-react';
+import { Check, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { usePortal, Proposta } from '../state/PortalContext';
 import { chamarApi } from '../lib/api';
 import { formatarMoeda, formatarData } from '../lib/cpf';
 import PortalPainel from '../components/PortalPainel';
 import BotaoMarca from '../components/BotaoMarca';
+
+interface DiagnosticoTentativa {
+  negociacaoId: string;
+  negociacaoNome?: string;
+  ok: boolean;
+  parcelamentosGerados?: number;
+  status?: number | null;
+  detalhe?: unknown;
+}
+interface Diagnostico {
+  totalNegociacoesConfiguradas: number;
+  tentativas: DiagnosticoTentativa[];
+}
 
 type Forma = 'a_vista' | 'parcelado';
 
@@ -17,6 +30,7 @@ export default function Negociacao() {
   const [erro, setErro] = useState<string | null>(null);
   const [valorAtualizado, setValorAtualizado] = useState<number | null>(null);
   const [propostas, setPropostas] = useState<Proposta[]>([]);
+  const [diagnostico, setDiagnostico] = useState<Diagnostico | undefined>(undefined);
   const [forma, setForma] = useState<Forma>('a_vista');
   const [selecionadaId, setSelecionadaId] = useState<string | null>(null);
 
@@ -30,7 +44,7 @@ export default function Negociacao() {
     setCarregando(true);
     setErro(null);
 
-    chamarApi<{ valorAtualizadoContrato: number; propostas: Proposta[] }>('/propostas', {
+    chamarApi<{ valorAtualizadoContrato: number; propostas: Proposta[]; diagnostico?: Diagnostico }>('/propostas', {
       clienteId: contratoAtual.clienteId,
       contratoId: contratoAtual.id,
       cpf,
@@ -39,6 +53,7 @@ export default function Negociacao() {
         if (cancelado) return;
         setValorAtualizado(resposta.valorAtualizadoContrato);
         setPropostas(resposta.propostas || []);
+        setDiagnostico(resposta.diagnostico);
         const primeiraAVista = resposta.propostas?.find((p) => p.tipo === 'a_vista');
         if (primeiraAVista) {
           setForma('a_vista');
@@ -85,7 +100,18 @@ export default function Negociacao() {
   }
 
   return (
-    <PortalPainel rotulo={`Contrato ${contratoAtual.numero}`} titulo="Monte sua negociação">
+    <PortalPainel
+      rotulo={`Contrato ${contratoAtual.numero}`}
+      titulo="Monte sua negociação"
+      acaoTopo={
+        <button
+          onClick={() => navigate('/contratos')}
+          className="flex items-center gap-1.5 text-sm text-white/85 hover:text-white transition-colors flex-shrink-0"
+        >
+          <ArrowLeft size={15} /> Voltar
+        </button>
+      }
+    >
       {carregando && (
         <div className="flex items-center gap-3 text-claro-suave py-10 justify-center">
           <Loader2 size={20} className="animate-spin" /> Buscando as melhores condições…
@@ -137,7 +163,23 @@ export default function Negociacao() {
             </div>
 
             {propostas.length === 0 && (
-              <p className="text-claro-suave text-sm">Nenhuma condição de negociação disponível para este contrato no momento.</p>
+              <div className="space-y-3">
+                <p className="text-claro-suave text-sm">Nenhuma condição de negociação disponível para este contrato no momento.</p>
+                {diagnostico && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-xs text-amber-800 font-mono space-y-1.5">
+                    <p className="font-sans font-semibold text-amber-900">Diagnóstico (temporário):</p>
+                    <p>{diagnostico.totalNegociacoesConfiguradas} negociação(ões) configurada(s).</p>
+                    {diagnostico.tentativas.map((t) => (
+                      <p key={t.negociacaoId}>
+                        {t.negociacaoNome || t.negociacaoId}:{' '}
+                        {t.ok
+                          ? `${t.parcelamentosGerados} parcelamento(s) gerado(s)`
+                          : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Opção à vista */}
