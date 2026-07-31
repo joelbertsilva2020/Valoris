@@ -4,6 +4,7 @@ import Home from './pages/Home';
 import NaoEncontrado from './pages/NaoEncontrado';
 import Contratos from './pages/Contratos';
 import Negociacao from './pages/Negociacao';
+import RevisarAcordo from './pages/RevisarAcordo';
 import ConfirmarAcordo from './pages/ConfirmarAcordo';
 import Sucesso from './pages/Sucesso';
 import MeuAcordo from './pages/MeuAcordo';
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/nao-encontrado" element={<NaoEncontrado />} />
         <Route path="/contratos" element={<Contratos />} />
         <Route path="/negociacao" element={<Negociacao />} />
+        <Route path="/revisar-acordo" element={<RevisarAcordo />} />
         <Route path="/confirmar-acordo" element={<ConfirmarAcordo />} />
         <Route path="/sucesso" element={<Sucesso />} />
         <Route path="/meu-acordo" element={<MeuAcordo />} />
