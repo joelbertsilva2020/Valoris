@@ -193,6 +193,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
           chamarComAutenticacao({
             method: 'POST',
             path: '/api/assessorias/acordos/simular',
+            headers: { 'Content-Type': 'application/json' },
             body: { cliente: clienteId, negociacao: negociacao.id },
           })
             .then((resposta) => {
@@ -251,6 +252,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       return chamarComAutenticacao({
         method: 'POST',
         path: '/api/assessorias/acordos/efetivar',
+        headers: { 'Content-Type': 'application/json' },
         body: {
           cliente: clienteId,
           negociacao: proposta._negociacaoId,
