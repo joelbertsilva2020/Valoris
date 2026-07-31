@@ -175,6 +175,9 @@ async function listarPropostas({ clienteId, contratoId, cpf }) {
     contratoId,
     valorAtualizadoContrato: resposta.valorAtualizadoContrato,
     propostas: propostasComEconomia,
+    // Temporário: só ajuda a investigar por que um cliente não tem
+    // propostas. Remover depois que o motivo for confirmado.
+    diagnostico: propostasComEconomia.length === 0 ? resposta.diagnostico : undefined,
   };
 }
 
