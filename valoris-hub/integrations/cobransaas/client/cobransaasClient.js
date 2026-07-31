@@ -12,6 +12,13 @@
  * não o contrato. Por isso o service/rotas/frontend precisam carregar o
  * clienteId junto com o contratoId a partir da tela de Contratos (ver
  * portalService.js).
+ *
+ * CORREÇÃO: quando o CPF/CNPJ não tem cliente cadastrado no CobranSaaS,
+ * isso NÃO é um erro — é um resultado normal de "nenhuma pendência",
+ * igual ao caso de cliente existente sem contratos. Antes isso lançava
+ * uma exceção 404 que o Portal exibia como mensagem de erro genérica; agora
+ * devolve o mesmo formato vazio, e o Portal já sabe levar o cliente pra
+ * tela "Nenhuma oportunidade encontrada" (ver portalService.consultarCpf).
  */
 
 const axios = require('axios');
@@ -122,6 +129,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
      * vinculados. Cada contrato carrega o clienteId junto — necessário
      * porque simular/efetivar/consultar acordo pedem o cliente, não o
      * contrato.
+     *
+     * Se não existe cliente cadastrado para esse CPF/CNPJ, devolve um
+     * resultado vazio (não é erro) — o Portal trata isso exatamente igual
+     * a "cliente existe mas não tem contratos", levando pra tela de
+     * "nenhuma oportunidade encontrada".
      */
     async buscarContratosPorCpf(cpf) {
       const respostaClientes = await chamarComAutenticacao({
@@ -133,9 +145,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       const cliente = Array.isArray(clientes) ? clientes[0] : null;
 
       if (!cliente) {
-        const erro = new Error('Cliente não encontrado para este CPF/CNPJ.');
-        erro.status = 404;
-        throw erro;
+        return { clienteId: null, nome: null, contratos: [] };
       }
 
       const respostaContratos = await chamarComAutenticacao({
