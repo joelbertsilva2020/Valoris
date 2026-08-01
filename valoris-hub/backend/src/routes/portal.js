@@ -74,9 +74,9 @@ router.post('/contratos', async (req, res) => {
 // 4. Propostas — simuladas em cima do clienteId
 router.post('/propostas', async (req, res) => {
   try {
-    const { clienteId, contratoId, cpf } = req.body;
+    const { clienteId, contratoId, valorOriginal, cpf } = req.body;
     if (!clienteId) return res.status(400).json({ erro: 'Cliente não informado.' });
-    const resultado = await portalService.listarPropostas({ clienteId, contratoId, cpf });
+    const resultado = await portalService.listarPropostas({ clienteId, contratoId, valorOriginal, cpf });
     res.json(resultado);
   } catch (erro) {
     tratarErro(res, 'propostas', erro);
