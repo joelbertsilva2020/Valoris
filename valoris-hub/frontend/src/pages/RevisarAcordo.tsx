@@ -17,9 +17,10 @@ export default function RevisarAcordo() {
   }
 
   const p = propostaEscolhida;
-  const qtdParcelas = p.parcelas?.length || 0;
-  const valorParcela = p.parcelas?.[0]?.valor ?? (qtdParcelas ? p.valorTotal / qtdParcelas : p.valorTotal);
-  const totalPagamentos = p.tipo === 'a_vista' ? 1 : qtdParcelas + (p.entrada ? 1 : 0);
+  const parcelasReais = p.entrada ? (p.parcelas || []).slice(1) : p.parcelas || [];
+  const qtdParcelas = parcelasReais.length;
+  const valorParcela = parcelasReais[0]?.valor ?? (qtdParcelas ? p.valorTotal / qtdParcelas : p.valorTotal);
+  const totalPagamentos = p.tipo === 'a_vista' ? 1 : (p.parcelas || []).length || qtdParcelas + (p.entrada ? 1 : 0);
 
   return (
     <PortalPainel
