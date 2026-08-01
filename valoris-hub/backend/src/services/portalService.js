@@ -148,7 +148,7 @@ async function listarContratos(cpfBruto) {
 // ---------------------------------------------------------------------------
 // 4. Propostas — simuladas em cima do CLIENTE, não do contrato
 // ---------------------------------------------------------------------------
-async function listarPropostas({ clienteId, contratoId, cpf }) {
+async function listarPropostas({ clienteId, contratoId, valorOriginal, cpf }) {
   if (!clienteId) {
     const erro = new Error('clienteId é obrigatório para simular propostas.');
     erro.status = 400;
@@ -163,9 +163,14 @@ async function listarPropostas({ clienteId, contratoId, cpf }) {
     'CobranSaaS (listar propostas)'
   );
 
+  // O valor de referência pra calcular a economia vem do próprio contrato
+  // (mesmo valor já exibido, confirmado, na tela de Contratos) — mais
+  // confiável do que o campo equivalente na resposta da simulação.
+  const valorReferencia = valorOriginal ?? resposta.valorAtualizadoContrato;
+
   const propostasComEconomia = resposta.propostas.map((proposta) => ({
     ...proposta,
-    percentualEconomia: calcularPercentualEconomia(resposta.valorAtualizadoContrato, proposta.valorTotal),
+    percentualEconomia: calcularPercentualEconomia(valorReferencia, proposta.valorTotal),
   }));
 
   await registrarEvento('proposta_visualizada', { cpf, detalhe: { clienteId, contratoId } });
@@ -173,7 +178,7 @@ async function listarPropostas({ clienteId, contratoId, cpf }) {
   return {
     clienteId,
     contratoId,
-    valorAtualizadoContrato: resposta.valorAtualizadoContrato,
+    valorAtualizadoContrato: valorReferencia,
     propostas: propostasComEconomia,
     // Temporário: só ajuda a investigar por que um cliente não tem
     // propostas. Remover depois que o motivo for confirmado.
