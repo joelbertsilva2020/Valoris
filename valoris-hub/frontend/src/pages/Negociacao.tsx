@@ -32,7 +32,6 @@ export default function Negociacao() {
 
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
-  const [valorAtualizado, setValorAtualizado] = useState<number | null>(null);
   const [propostas, setPropostas] = useState<Proposta[]>([]);
   const [diagnostico, setDiagnostico] = useState<Diagnostico | undefined>(undefined);
   const [forma, setForma] = useState<Forma>('a_vista');
@@ -51,11 +50,11 @@ export default function Negociacao() {
     chamarApi<{ valorAtualizadoContrato: number; propostas: Proposta[]; diagnostico?: Diagnostico }>('/propostas', {
       clienteId: contratoAtual.clienteId,
       contratoId: contratoAtual.id,
+      valorOriginal: contratoAtual.valorAtualizado,
       cpf,
     })
       .then((resposta) => {
         if (cancelado) return;
-        setValorAtualizado(resposta.valorAtualizadoContrato);
         setPropostas(resposta.propostas || []);
         setDiagnostico(resposta.diagnostico);
         const primeiraAVista = resposta.propostas?.find((p) => p.tipo === 'a_vista');
@@ -132,11 +131,12 @@ export default function Negociacao() {
       {!carregando && !erro && (
         <div className="grid lg:grid-cols-[1fr_320px] gap-6">
           <div>
-            {valorAtualizado !== null && (
-              <p className="text-sm text-claro-suave mb-5">
-                Valor atualizado da dívida: <span className="font-mono text-claro-texto">{formatarMoeda(valorAtualizado)}</span>
-              </p>
-            )}
+            <p className="text-sm text-claro-suave mb-5">
+              Valor atualizado da dívida:{' '}
+              <span className="font-mono text-claro-texto">
+                {formatarMoeda(contratoAtual.valorAtualizado)}
+              </span>
+            </p>
 
             {/* Abas: forma de pagamento */}
             <div className="flex gap-2 mb-5">
@@ -211,9 +211,13 @@ export default function Negociacao() {
             {forma === 'parcelado' && (
               <div className="space-y-2.5">
                 {propostasParceladas.map((p) => {
-                  const qtdParcelas = p.parcelas?.length || 0;
-                  const valorParcela = p.parcelas?.[0]?.valor ?? p.valorTotal / (qtdParcelas || 1);
-                  const totalPagamentos = qtdParcelas + (p.entrada ? 1 : 0);
+                  // O CobranSaaS repete a entrada como a primeira posição do
+                  // array de parcelas — pulamos ela pra pegar só as parcelas
+                  // "reais" que vêm depois.
+                  const parcelasReais = p.entrada ? (p.parcelas || []).slice(1) : p.parcelas || [];
+                  const qtdParcelas = parcelasReais.length;
+                  const valorParcela = parcelasReais[0]?.valor ?? p.valorTotal / (qtdParcelas || 1);
+                  const totalPagamentos = (p.parcelas || []).length || qtdParcelas + (p.entrada ? 1 : 0);
                   const detalhe = p.entrada
                     ? `Entrada de ${formatarMoeda(p.entrada.valor)} até ${formatarData(p.entrada.vencimento)} + ${qtdParcelas}x de ${formatarMoeda(valorParcela)}`
                     : undefined;
