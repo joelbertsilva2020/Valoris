@@ -189,12 +189,13 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       const diagnostico = [];
 
       const respostasSimulacao = await Promise.all(
-        negociacoes.map((negociacao) =>
-          chamarComAutenticacao({
+        negociacoes.map((negociacao) => {
+          const corpoEnviado = { cliente: clienteId, negociacao: negociacao.id };
+          return chamarComAutenticacao({
             method: 'POST',
             path: '/api/assessorias/acordos/simular',
             headers: { 'Content-Type': 'application/json' },
-            body: { cliente: clienteId, negociacao: negociacao.id },
+            body: corpoEnviado,
           })
             .then((resposta) => {
               const qtdParcelamentos = (resposta.parcelamentos || []).filter((p) => p.habilitado !== false).length;
@@ -202,7 +203,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
                 negociacaoId: negociacao.id,
                 negociacaoNome: negociacao.nome || negociacao.descricao,
                 ok: true,
+                corpoEnviado,
                 parcelamentosGerados: qtdParcelamentos,
+                totalParcelamentosNaResposta: (resposta.parcelamentos || []).length,
+                valorDivida: resposta.valorDivida,
+                respostaCompleta: resposta,
               });
               return resposta;
             })
@@ -211,6 +216,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
                 negociacaoId: negociacao.id,
                 negociacaoNome: negociacao.nome || negociacao.descricao,
                 ok: false,
+                corpoEnviado,
                 status: erro.status || null,
                 detalhe: erro.detalhe || erro.message,
               });
@@ -220,8 +226,8 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
                 JSON.stringify(erro.detalhe || erro.message)
               );
               return null;
-            })
-        )
+            });
+        })
       );
 
       let valorAtualizadoContrato = null;
