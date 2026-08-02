@@ -6,6 +6,7 @@ import { chamarApi } from '../lib/api';
 import { formatarMoeda } from '../lib/cpf';
 import PortalPainel from '../components/PortalPainel';
 import BotaoMarca from '../components/BotaoMarca';
+import AvisoSessao from '../components/AvisoSessao';
 
 export default function ConfirmarAcordo() {
   const navigate = useNavigate();
@@ -19,10 +20,7 @@ export default function ConfirmarAcordo() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  if (!contratoAtual || !propostaEscolhida) {
-    navigate('/contratos');
-    return null;
-  }
+  if (!contratoAtual || !propostaEscolhida) return <AvisoSessao />;
 
   async function confirmar(e: FormEvent) {
     e.preventDefault();
