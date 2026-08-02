@@ -179,6 +179,7 @@ async function listarPropostas({ clienteId, contratoId, valorOriginal, cpf }) {
     clienteId,
     contratoId,
     valorAtualizadoContrato: valorReferencia,
+    diasAtraso: resposta.diasAtraso,
     propostas: propostasComEconomia,
     // Temporário: só ajuda a investigar por que um cliente não tem
     // propostas. Remover depois que o motivo for confirmado.
