@@ -38,6 +38,7 @@ interface PortalState {
   contratos: Contrato[];
   contratoAtual: Contrato | null;
   propostaEscolhida: Proposta | null;
+  diasAtraso: number | null;
   canalConfirmacao: string;
   emailConfirmacao: string;
   acordoConfirmado: AcordoConfirmado | null;
@@ -46,6 +47,7 @@ interface PortalState {
   setContratos: (contratos: Contrato[]) => void;
   setContratoAtual: (contrato: Contrato | null) => void;
   setPropostaEscolhida: (proposta: Proposta | null) => void;
+  setDiasAtraso: (dias: number | null) => void;
   setCanalConfirmacao: (canal: string) => void;
   setEmailConfirmacao: (email: string) => void;
   setAcordoConfirmado: (acordo: AcordoConfirmado | null) => void;
@@ -60,6 +62,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [contratoAtual, setContratoAtual] = useState<Contrato | null>(null);
   const [propostaEscolhida, setPropostaEscolhida] = useState<Proposta | null>(null);
+  const [diasAtraso, setDiasAtraso] = useState<number | null>(null);
   const [canalConfirmacao, setCanalConfirmacao] = useState<string>('email');
   const [emailConfirmacao, setEmailConfirmacao] = useState<string>('');
   const [acordoConfirmado, setAcordoConfirmado] = useState<AcordoConfirmado | null>(null);
@@ -70,6 +73,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     setContratos([]);
     setContratoAtual(null);
     setPropostaEscolhida(null);
+    setDiasAtraso(null);
     setCanalConfirmacao('email');
     setEmailConfirmacao('');
     setAcordoConfirmado(null);
@@ -78,9 +82,9 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   return (
     <PortalContext.Provider
       value={{
-        cpf, nome, contratos, contratoAtual, propostaEscolhida,
+        cpf, nome, contratos, contratoAtual, propostaEscolhida, diasAtraso,
         canalConfirmacao, emailConfirmacao, acordoConfirmado,
-        setCpf, setNome, setContratos, setContratoAtual, setPropostaEscolhida,
+        setCpf, setNome, setContratos, setContratoAtual, setPropostaEscolhida, setDiasAtraso,
         setCanalConfirmacao, setEmailConfirmacao, setAcordoConfirmado,
         reiniciar,
       }}
