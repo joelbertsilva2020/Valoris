@@ -231,11 +231,19 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       );
 
       let valorAtualizadoContrato = null;
+      let diasAtraso = null;
       const propostas = [];
 
       respostasSimulacao.forEach((resposta, i) => {
         if (!resposta) return;
         if (valorAtualizadoContrato === null) valorAtualizadoContrato = resposta.valorDivida;
+        if (diasAtraso === null) {
+          const maiorAtraso = (resposta.parcelas || []).reduce(
+            (max, p) => Math.max(max, Number(p.diasAtraso) || 0),
+            0
+          );
+          diasAtraso = maiorAtraso || null;
+        }
         (resposta.parcelamentos || [])
           .filter((p) => p.habilitado !== false)
           .forEach((parcelamento) => {
@@ -245,6 +253,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
 
       return {
         valorAtualizadoContrato,
+        diasAtraso,
         propostas,
         diagnostico: { totalNegociacoesConfiguradas: negociacoes.length, tentativas: diagnostico },
       };
