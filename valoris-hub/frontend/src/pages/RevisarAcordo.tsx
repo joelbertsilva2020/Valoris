@@ -5,22 +5,21 @@ import { usePortal } from '../state/PortalContext';
 import { formatarMoeda, formatarData } from '../lib/cpf';
 import PortalPainel from '../components/PortalPainel';
 import BotaoMarca from '../components/BotaoMarca';
+import AvisoSessao from '../components/AvisoSessao';
 
 export default function RevisarAcordo() {
   const navigate = useNavigate();
-  const { contratoAtual, propostaEscolhida } = usePortal();
+  const { contratoAtual, propostaEscolhida, diasAtraso } = usePortal();
   const [aceitou, setAceitou] = useState(false);
 
-  if (!contratoAtual || !propostaEscolhida) {
-    navigate('/contratos');
-    return null;
-  }
+  if (!contratoAtual || !propostaEscolhida) return <AvisoSessao />;
 
   const p = propostaEscolhida;
+  // O CobranSaaS repete a entrada como a primeira posição do array de
+  // parcelas — as parcelas "reais" são as que vêm depois dela.
   const parcelasReais = p.entrada ? (p.parcelas || []).slice(1) : p.parcelas || [];
-  const qtdParcelas = parcelasReais.length;
-  const valorParcela = parcelasReais[0]?.valor ?? (qtdParcelas ? p.valorTotal / qtdParcelas : p.valorTotal);
-  const totalPagamentos = p.tipo === 'a_vista' ? 1 : (p.parcelas || []).length || qtdParcelas + (p.entrada ? 1 : 0);
+  const totalPagamentos = p.tipo === 'a_vista' ? 1 : (p.parcelas || []).length;
+  const valorDesconto = contratoAtual.valorAtualizado - Number(p.valorTotal);
 
   return (
     <PortalPainel
@@ -35,34 +34,38 @@ export default function RevisarAcordo() {
         </button>
       }
     >
-      <p className="text-claro-suave text-sm mb-6">Confira as condições do acordo antes de continuar.</p>
+      <p className="text-claro-suave text-sm mb-6">Confira todas as condições do acordo antes de continuar.</p>
 
       <div className="max-w-md space-y-4">
-        <div className="bg-claro-superficie border border-claro-linha rounded-xl p-5 space-y-3">
+        {/* Situação atual da dívida */}
+        <div className="bg-claro-superficie border border-claro-linha rounded-xl p-5 space-y-2.5">
+          <p className="text-xs uppercase tracking-wide text-claro-suave font-mono mb-1">Situação atual</p>
+          <div className="flex justify-between text-sm">
+            <span className="text-claro-suave">Contrato</span>
+            <span className="text-claro-texto font-mono">{contratoAtual.numero}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-claro-suave">Dívida atual</span>
+            <span className="text-claro-texto font-mono">{formatarMoeda(contratoAtual.valorAtualizado)}</span>
+          </div>
+          {diasAtraso !== null && (
+            <div className="flex justify-between text-sm">
+              <span className="text-claro-suave">Dias em atraso</span>
+              <span className="text-red-600 font-medium">{diasAtraso}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Condições negociadas */}
+        <div className="bg-claro-superficie border border-claro-linha rounded-xl p-5 space-y-2.5">
+          <p className="text-xs uppercase tracking-wide text-claro-suave font-mono mb-1">Condições negociadas</p>
+
           <div className="flex justify-between text-sm">
             <span className="text-claro-suave">Forma de pagamento</span>
             <span className="text-claro-texto font-medium">
-              {p.tipo === 'a_vista' ? 'À vista' : `${totalPagamentos}x`}
+              {p.tipo === 'a_vista' ? 'À vista' : `Parcelado em ${totalPagamentos}x`}
             </span>
           </div>
-
-          {p.entrada && (
-            <div className="flex justify-between text-sm">
-              <span className="text-claro-suave">Entrada</span>
-              <span className="text-claro-texto font-mono">
-                {formatarMoeda(p.entrada.valor)} até {formatarData(p.entrada.vencimento)}
-              </span>
-            </div>
-          )}
-
-          {p.tipo === 'parcelado' && qtdParcelas > 0 && (
-            <div className="flex justify-between text-sm">
-              <span className="text-claro-suave">Parcelas</span>
-              <span className="text-claro-texto font-mono">
-                {qtdParcelas}x de {formatarMoeda(valorParcela)}
-              </span>
-            </div>
-          )}
 
           {p.tipo === 'a_vista' && p.vencimentoMaximo && (
             <div className="flex justify-between text-sm">
@@ -71,10 +74,13 @@ export default function RevisarAcordo() {
             </div>
           )}
 
-          {p.percentualEconomia !== null && p.percentualEconomia > 0 && (
+          {valorDesconto > 0 && (
             <div className="flex justify-between text-sm">
-              <span className="text-claro-suave">Desconto aplicado</span>
-              <span className="text-green-600 font-semibold">{p.percentualEconomia}%</span>
+              <span className="text-claro-suave">Desconto obtido</span>
+              <span className="text-green-600 font-semibold">
+                {formatarMoeda(valorDesconto)}
+                {p.percentualEconomia !== null && ` (${p.percentualEconomia}%)`}
+              </span>
             </div>
           )}
 
@@ -85,6 +91,29 @@ export default function RevisarAcordo() {
             <span className="font-mono text-lg text-claro-texto">{formatarMoeda(p.valorTotal)}</span>
           </div>
         </div>
+
+        {/* Detalhamento parcela a parcela */}
+        {p.tipo === 'parcelado' && (p.entrada || parcelasReais.length > 0) && (
+          <div className="bg-claro-superficie border border-claro-linha rounded-xl p-5">
+            <p className="text-xs uppercase tracking-wide text-claro-suave font-mono mb-3">Detalhamento dos pagamentos</p>
+            <div className="space-y-2">
+              {p.entrada && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-claro-texto">Entrada — {formatarData(p.entrada.vencimento)}</span>
+                  <span className="text-claro-texto font-mono">{formatarMoeda(p.entrada.valor)}</span>
+                </div>
+              )}
+              {parcelasReais.map((parcela, i) => (
+                <div key={i} className="flex justify-between text-sm">
+                  <span className="text-claro-texto">
+                    Parcela {i + 1}/{parcelasReais.length} — {formatarData(parcela.vencimento)}
+                  </span>
+                  <span className="text-claro-texto font-mono">{formatarMoeda(parcela.valor)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <label className="flex items-start gap-3 text-sm text-claro-texto cursor-pointer select-none">
           <span
