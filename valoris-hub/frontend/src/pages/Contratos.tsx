@@ -3,15 +3,13 @@ import { ChevronRight } from 'lucide-react';
 import { usePortal, Contrato } from '../state/PortalContext';
 import { formatarMoeda } from '../lib/cpf';
 import PortalPainel from '../components/PortalPainel';
+import AvisoSessao from '../components/AvisoSessao';
 
 export default function Contratos() {
   const navigate = useNavigate();
   const { contratos, nome, setContratoAtual } = usePortal();
 
-  if (contratos.length === 0) {
-    navigate('/');
-    return null;
-  }
+  if (contratos.length === 0) return <AvisoSessao />;
 
   function abrirNegociacao(contrato: Contrato) {
     setContratoAtual(contrato);
