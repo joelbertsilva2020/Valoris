@@ -6,6 +6,7 @@ import { chamarApi } from '../lib/api';
 import { formatarMoeda, formatarData } from '../lib/cpf';
 import PortalPainel from '../components/PortalPainel';
 import BotaoMarca from '../components/BotaoMarca';
+import AvisoSessao from '../components/AvisoSessao';
 
 interface DiagnosticoTentativa {
   negociacaoId: string;
@@ -28,7 +29,7 @@ type Forma = 'a_vista' | 'parcelado';
 
 export default function Negociacao() {
   const navigate = useNavigate();
-  const { cpf, contratoAtual, setPropostaEscolhida } = usePortal();
+  const { cpf, contratoAtual, setPropostaEscolhida, diasAtraso, setDiasAtraso } = usePortal();
 
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -38,16 +39,13 @@ export default function Negociacao() {
   const [selecionadaId, setSelecionadaId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!contratoAtual) {
-      navigate('/contratos');
-      return;
-    }
+    if (!contratoAtual) return;
 
     let cancelado = false;
     setCarregando(true);
     setErro(null);
 
-    chamarApi<{ valorAtualizadoContrato: number; propostas: Proposta[]; diagnostico?: Diagnostico }>('/propostas', {
+    chamarApi<{ valorAtualizadoContrato: number; diasAtraso?: number; propostas: Proposta[]; diagnostico?: Diagnostico }>('/propostas', {
       clienteId: contratoAtual.clienteId,
       contratoId: contratoAtual.id,
       valorOriginal: contratoAtual.valorAtualizado,
@@ -57,6 +55,7 @@ export default function Negociacao() {
         if (cancelado) return;
         setPropostas(resposta.propostas || []);
         setDiagnostico(resposta.diagnostico);
+        if (resposta.diasAtraso !== undefined) setDiasAtraso(resposta.diasAtraso);
         const primeiraAVista = resposta.propostas?.find((p) => p.tipo === 'a_vista');
         if (primeiraAVista) {
           setForma('a_vista');
@@ -75,7 +74,7 @@ export default function Negociacao() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contratoAtual]);
 
-  if (!contratoAtual) return null;
+  if (!contratoAtual) return <AvisoSessao />;
 
   const propostasAVista = propostas.filter((p) => p.tipo === 'a_vista');
   const propostasParceladas = propostas
@@ -136,6 +135,12 @@ export default function Negociacao() {
               <span className="font-mono text-claro-texto">
                 {formatarMoeda(contratoAtual.valorAtualizado)}
               </span>
+              {diasAtraso !== null && (
+                <>
+                  {' '}
+                  · <span className="text-red-600 font-medium">{diasAtraso} dias em atraso</span>
+                </>
+              )}
             </p>
 
             {/* Abas: forma de pagamento */}
@@ -226,7 +231,7 @@ export default function Negociacao() {
                       key={p.id}
                       selecionada={p.id === selecionadaId}
                       onSelecionar={() => setSelecionadaId(p.id)}
-                      titulo={`${totalPagamentos}x de ${formatarMoeda(valorParcela)}`}
+                      titulo={`Parcelamento em ${totalPagamentos}x:`}
                       detalhe={detalhe}
                       total={formatarMoeda(p.valorTotal)}
                       economia={p.percentualEconomia}
