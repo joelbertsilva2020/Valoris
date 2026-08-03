@@ -179,54 +179,84 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     },
 
     /**
-     * Simula cada negociação disponível pro cliente e junta todos os
-     * parcelamentos retornados numa lista só de propostas. Também monta
-     * um diagnóstico de cada tentativa (temporário, pra investigação).
+     * Simula cada negociação disponível pro cliente. Pra cada negociação,
+     * faz DUAS chamadas de simulação:
+     * 1) uma "prévia" simples, só pra descobrir quanto de desconto de
+     *    principal (descontoPrincipalMax) o CobranSaaS permite pra cada
+     *    parcela da dívida;
+     * 2) uma simulação final, mandando de volta pro CobranSaaS essas
+     *    mesmas parcelas com `descontoPrincipal` = o máximo permitido —
+     *    é o próprio CobranSaaS que recalcula os parcelamentos já com o
+     *    desconto aplicado de verdade (documentado em POST
+     *    /api/acordos/simular, campo `parcelas: [{parcela, descontoPrincipal}]`).
+     * Isso segue a regra de nunca calcularmos desconto por conta própria —
+     * quem aplica é sempre o CobranSaaS.
+     * Quando não há desconto disponível (descontoPrincipalMax = 0 em
+     * todas as parcelas), pula a segunda chamada e usa a prévia mesmo.
      */
     async listarPropostas(clienteId) {
       const negociacoes = await this.listarNegociacoesDisponiveis();
 
       const diagnostico = [];
 
-      const respostasSimulacao = await Promise.all(
-        negociacoes.map((negociacao) => {
-          const corpoEnviado = { cliente: clienteId, negociacao: negociacao.id };
-          return chamarComAutenticacao({
-            method: 'POST',
-            path: '/api/assessorias/acordos/simular',
-            headers: { 'Content-Type': 'application/json' },
-            body: corpoEnviado,
-          })
-            .then((resposta) => {
-              const qtdParcelamentos = (resposta.parcelamentos || []).filter((p) => p.habilitado !== false).length;
-              diagnostico.push({
-                negociacaoId: negociacao.id,
-                negociacaoNome: negociacao.nome || negociacao.descricao,
-                ok: true,
-                corpoEnviado,
-                parcelamentosGerados: qtdParcelamentos,
-                totalParcelamentosNaResposta: (resposta.parcelamentos || []).length,
-                valorDivida: resposta.valorDivida,
-                respostaCompleta: resposta,
-              });
-              return resposta;
-            })
-            .catch((erro) => {
-              diagnostico.push({
-                negociacaoId: negociacao.id,
-                negociacaoNome: negociacao.nome || negociacao.descricao,
-                ok: false,
-                corpoEnviado,
-                status: erro.status || null,
-                detalhe: erro.detalhe || erro.message,
-              });
-              console.error(
-                `[CobranSaaS] Falha ao simular negociação ${negociacao.id} pro cliente ${clienteId}:`,
-                erro.status,
-                JSON.stringify(erro.detalhe || erro.message)
-              );
-              return null;
+      const resultados = await Promise.all(
+        negociacoes.map(async (negociacao) => {
+          const corpoBase = { cliente: clienteId, negociacao: negociacao.id };
+          try {
+            const previa = await chamarComAutenticacao({
+              method: 'POST',
+              path: '/api/assessorias/acordos/simular',
+              headers: { 'Content-Type': 'application/json' },
+              body: corpoBase,
             });
+
+            const parcelasComDesconto = (previa.parcelas || [])
+              .filter((p) => Number(p.descontoPrincipalMax) > 0)
+              .map((p) => ({ parcela: p.parcela, descontoPrincipal: Number(p.descontoPrincipalMax) }));
+
+            let respostaFinal = previa;
+            let corpoFinal = corpoBase;
+
+            if (parcelasComDesconto.length > 0) {
+              corpoFinal = { ...corpoBase, parcelas: parcelasComDesconto };
+              respostaFinal = await chamarComAutenticacao({
+                method: 'POST',
+                path: '/api/assessorias/acordos/simular',
+                headers: { 'Content-Type': 'application/json' },
+                body: corpoFinal,
+              });
+            }
+
+            diagnostico.push({
+              negociacaoId: negociacao.id,
+              negociacaoNome: negociacao.nome || negociacao.descricao,
+              ok: true,
+              descontoDisponivel: parcelasComDesconto.length > 0,
+              parcelasComDesconto,
+              corpoEnviado: corpoFinal,
+              parcelamentosGerados: (respostaFinal.parcelamentos || []).filter((p) => p.habilitado !== false).length,
+              totalParcelamentosNaResposta: (respostaFinal.parcelamentos || []).length,
+              valorDivida: respostaFinal.valorDivida,
+              respostaCompleta: respostaFinal,
+            });
+
+            return { resposta: respostaFinal, parcelasComDesconto };
+          } catch (erro) {
+            diagnostico.push({
+              negociacaoId: negociacao.id,
+              negociacaoNome: negociacao.nome || negociacao.descricao,
+              ok: false,
+              corpoEnviado: corpoBase,
+              status: erro.status || null,
+              detalhe: erro.detalhe || erro.message,
+            });
+            console.error(
+              `[CobranSaaS] Falha ao simular negociação ${negociacao.id} pro cliente ${clienteId}:`,
+              erro.status,
+              JSON.stringify(erro.detalhe || erro.message)
+            );
+            return null;
+          }
         })
       );
 
@@ -234,8 +264,9 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       let diasAtraso = null;
       const propostas = [];
 
-      respostasSimulacao.forEach((resposta, i) => {
-        if (!resposta) return;
+      resultados.forEach((item, i) => {
+        if (!item) return;
+        const { resposta, parcelasComDesconto } = item;
         if (valorAtualizadoContrato === null) valorAtualizadoContrato = resposta.valorDivida;
         if (diasAtraso === null) {
           const maiorAtraso = (resposta.parcelas || []).reduce(
@@ -247,7 +278,12 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         (resposta.parcelamentos || [])
           .filter((p) => p.habilitado !== false)
           .forEach((parcelamento) => {
-            propostas.push(mapearParcelamentoParaProposta(negociacoes[i].id, parcelamento));
+            const proposta = mapearParcelamentoParaProposta(negociacoes[i].id, parcelamento);
+            // Guardado pra reaplicar o mesmo desconto na hora de efetivar
+            // (ver confirmarAcordo) — sem isso o acordo seria criado sem
+            // o desconto que foi mostrado ao cliente.
+            proposta._parcelasComDesconto = parcelasComDesconto;
+            propostas.push(proposta);
           });
       });
 
@@ -261,18 +297,30 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
 
     /**
      * Efetiva o acordo de verdade. `proposta` é o objeto de proposta que
-     * veio de listarPropostas (já carrega _negociacaoId/_meioPagamentoId).
+     * veio de listarPropostas (já carrega _negociacaoId/_meioPagamentoId
+     * e _parcelasComDesconto). Reenviamos o mesmo desconto que foi
+     * simulado e mostrado ao cliente — sem isso o acordo seria efetivado
+     * pelo valor cheio, sem o desconto.
+     *
+     * NÃO CONFIRMADO AINDA: assumindo que /api/acordos/efetivar aceita o
+     * mesmo parâmetro `parcelas` documentado pro /simular. Precisa
+     * validar contra a documentação de "Efetivar Acordo" antes de confiar
+     * cegamente nisso em produção.
      */
     async confirmarAcordo(clienteId, proposta) {
+      const corpo = {
+        cliente: clienteId,
+        negociacao: proposta._negociacaoId,
+        meioPagamento: proposta._meioPagamentoId,
+      };
+      if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
+        corpo.parcelas = proposta._parcelasComDesconto;
+      }
       return chamarComAutenticacao({
         method: 'POST',
         path: '/api/assessorias/acordos/efetivar',
         headers: { 'Content-Type': 'application/json' },
-        body: {
-          cliente: clienteId,
-          negociacao: proposta._negociacaoId,
-          meioPagamento: proposta._meioPagamentoId,
-        },
+        body: corpo,
       });
     },
 
