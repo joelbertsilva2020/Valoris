@@ -7,6 +7,7 @@ export interface Contrato {
   numero: string;
   descricao: string;
   valorAtualizado: number;
+  diasAtraso?: number;
   mensagem?: string;
 }
 
