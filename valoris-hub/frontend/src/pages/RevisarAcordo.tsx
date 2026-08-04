@@ -129,7 +129,16 @@ export default function RevisarAcordo() {
           </span>
         </label>
 
-        <BotaoMarca full disabled={!aceitou} onClick={() => navigate('/confirmar-acordo')}>
+        <BotaoMarca
+          full
+          disabled={!aceitou}
+          onClick={() => navigate('/confirmar-acordo')}
+          className={
+            aceitou
+              ? ''
+              : 'opacity-60 saturate-[.4] cursor-not-allowed hover:opacity-75 hover:saturate-50 transition-all'
+          }
+        >
           Confirmar e Continuar
         </BotaoMarca>
       </div>
