@@ -27,6 +27,48 @@
 
 const axios = require('axios');
 
+// ---------------------------------------------------------------------------
+// Utilidades de data — só agenda DENTRO da janela que o próprio CobranSaaS
+// permite (dataEmissaoMin/Max, dataVencimentoMin/Max, devolvidas por ele
+// mesmo na simulação). Nenhum valor financeiro é calculado aqui, só datas.
+// ---------------------------------------------------------------------------
+
+function paraData(isoDate) {
+  const [ano, mes, dia] = isoDate.split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia));
+}
+
+function paraIso(data) {
+  return data.toISOString().slice(0, 10);
+}
+
+/** Soma dias ÚTEIS (pula sábado/domingo — feriados não são considerados,
+ * não temos calendário de feriados disponível). */
+function somarDiasUteis(dataBase, quantidade) {
+  const resultado = new Date(dataBase);
+  let somados = 0;
+  while (somados < quantidade) {
+    resultado.setUTCDate(resultado.getUTCDate() + 1);
+    const diaSemana = resultado.getUTCDay();
+    if (diaSemana !== 0 && diaSemana !== 6) somados++;
+  }
+  return resultado;
+}
+
+function somarDiasCorridos(dataBase, quantidade) {
+  const resultado = new Date(dataBase);
+  resultado.setUTCDate(resultado.getUTCDate() + quantidade);
+  return resultado;
+}
+
+/** Prende uma data ISO dentro de [min, max], se vierem informados. */
+function limitarIntervalo(valorIso, minIso, maxIso) {
+  let v = valorIso;
+  if (minIso && v < minIso) v = minIso;
+  if (maxIso && v > maxIso) v = maxIso;
+  return v;
+}
+
 function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenAplicativo, tenant }) {
   if (!proxyUrl || !proxySecret || !codigoAplicativo || !tokenAplicativo) {
     throw new Error(
@@ -186,6 +228,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
           numero: c.numeroContrato,
           descricao: c.produto?.nome || 'Contrato',
           valorAtualizado: c.saldoAtual,
+          // Best-effort: nome do campo não confirmado em documentação
+          // pra esse endpoint especificamente (só confirmado na resposta
+          // da simulação). Se não vier, fica undefined e a tela não
+          // mostra nada — não quebra.
+          diasAtraso: c.diasAtraso,
         })),
       };
     },
@@ -199,18 +246,23 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     /**
      * Simula cada negociação disponível pro cliente. Pra cada negociação,
      * faz DUAS chamadas de simulação:
-     * 1) uma "prévia" simples, só pra descobrir quanto de desconto de
+     * 1) uma "prévia" simples, só pra descobrir (a) quanto de desconto de
      *    principal (descontoPrincipalMax) o CobranSaaS permite pra cada
-     *    parcela da dívida;
-     * 2) uma simulação final, mandando de volta pro CobranSaaS essas
-     *    mesmas parcelas com `descontoPrincipal` = o máximo permitido —
-     *    é o próprio CobranSaaS que recalcula os parcelamentos já com o
-     *    desconto aplicado de verdade (documentado em POST
-     *    /api/acordos/simular, campo `parcelas: [{parcela, descontoPrincipal}]`).
-     * Isso segue a regra de nunca calcularmos desconto por conta própria —
-     * quem aplica é sempre o CobranSaaS.
-     * Quando não há desconto disponível (descontoPrincipalMax = 0 em
-     * todas as parcelas), pula a segunda chamada e usa a prévia mesmo.
+     *    parcela da dívida, e (b) as janelas de data que ele aceita
+     *    (dataEmissaoMin/Max, dataVencimentoMin/Max) pra cada opção de
+     *    parcelamento;
+     * 2) uma simulação final, reenviando pro CobranSaaS:
+     *    - `parcelas: [{parcela, descontoPrincipal}]` com o desconto
+     *      máximo, quando existir — é o CobranSaaS que recalcula os
+     *      parcelamentos já com o desconto aplicado de verdade;
+     *    - `parcelamentos: [{numeroParcelas, dataEmissao, dataVencimento}]`
+     *      com datas padronizadas (emissão/à vista sempre em hoje + 3
+     *      dias úteis; vencimento da 1ª parcela real sempre 30 dias
+     *      corridos depois da emissão) — sempre dentro da janela que o
+     *      próprio CobranSaaS informou ser válida.
+     * Isso segue a regra de nunca calcularmos valor/desconto por conta
+     * própria — só escolhemos QUAL DATA usar dentro do que é permitido;
+     * quem calcula os valores finais é sempre o CobranSaaS.
      */
     async listarPropostas(clienteId) {
       const negociacoes = await this.listarNegociacoesDisponiveis();
@@ -232,30 +284,46 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
               .filter((p) => Number(p.descontoPrincipalMax) > 0)
               .map((p) => ({ parcela: p.parcela, descontoPrincipal: Number(p.descontoPrincipalMax) }));
 
-            let respostaFinal = previa;
-            let corpoFinal = corpoBase;
+            // "Hoje" na visão do próprio CobranSaaS (dataOperacao) — evita
+            // qualquer divergência de fuso horário entre o servidor da
+            // Vercel e o horário de Brasília.
+            const hojeCobranSaas = previa.dataOperacao ? paraData(previa.dataOperacao) : new Date();
+            const dataEmissaoDesejada = paraIso(somarDiasUteis(hojeCobranSaas, 3));
 
-            if (parcelasComDesconto.length > 0) {
-              corpoFinal = { ...corpoBase, parcelas: parcelasComDesconto };
-              respostaFinal = await chamarComAutenticacao({
-                method: 'POST',
-                path: '/api/assessorias/acordos/simular',
-                headers: { 'Content-Type': 'application/json' },
-                body: corpoFinal,
+            const parcelamentosComData = (previa.parcelamentos || [])
+              .filter((p) => p.habilitado !== false)
+              .map((p) => {
+                const numParcelas = Number(p.numeroParcelas) || 0;
+                const dataEmissaoFinal = limitarIntervalo(dataEmissaoDesejada, p.dataEmissaoMin, p.dataEmissaoMax);
+                const dataVencimentoFinal =
+                  numParcelas === 0
+                    ? dataEmissaoFinal
+                    : limitarIntervalo(
+                        paraIso(somarDiasCorridos(paraData(dataEmissaoFinal), 30)),
+                        p.dataVencimentoMin,
+                        p.dataVencimentoMax
+                      );
+                return { numeroParcelas: numParcelas, dataEmissao: dataEmissaoFinal, dataVencimento: dataVencimentoFinal };
               });
-            }
+
+            const corpoFinal = { ...corpoBase, parcelamentos: parcelamentosComData };
+            if (parcelasComDesconto.length > 0) corpoFinal.parcelas = parcelasComDesconto;
+
+            const respostaFinal = await chamarComAutenticacao({
+              method: 'POST',
+              path: '/api/assessorias/acordos/simular',
+              headers: { 'Content-Type': 'application/json' },
+              body: corpoFinal,
+            });
 
             diagnostico.push({
               negociacaoId: negociacao.id,
               negociacaoNome: negociacao.nome || negociacao.descricao,
               ok: true,
               descontoDisponivel: parcelasComDesconto.length > 0,
-              parcelasComDesconto,
               corpoEnviado: corpoFinal,
               parcelamentosGerados: (respostaFinal.parcelamentos || []).filter((p) => p.habilitado !== false).length,
-              totalParcelamentosNaResposta: (respostaFinal.parcelamentos || []).length,
               valorDivida: respostaFinal.valorDivida,
-              respostaCompleta: respostaFinal,
             });
 
             return { resposta: respostaFinal, parcelasComDesconto };
