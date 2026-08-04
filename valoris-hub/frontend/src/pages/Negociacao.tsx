@@ -8,23 +8,6 @@ import PortalPainel from '../components/PortalPainel';
 import BotaoMarca from '../components/BotaoMarca';
 import AvisoSessao from '../components/AvisoSessao';
 
-interface DiagnosticoTentativa {
-  negociacaoId: string;
-  negociacaoNome?: string;
-  ok: boolean;
-  corpoEnviado?: unknown;
-  parcelamentosGerados?: number;
-  totalParcelamentosNaResposta?: number;
-  valorDivida?: number;
-  respostaCompleta?: unknown;
-  status?: number | null;
-  detalhe?: unknown;
-}
-interface Diagnostico {
-  totalNegociacoesConfiguradas: number;
-  tentativas: DiagnosticoTentativa[];
-}
-
 type Forma = 'a_vista' | 'parcelado';
 
 export default function Negociacao() {
@@ -34,7 +17,6 @@ export default function Negociacao() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [propostas, setPropostas] = useState<Proposta[]>([]);
-  const [diagnostico, setDiagnostico] = useState<Diagnostico | undefined>(undefined);
   const [forma, setForma] = useState<Forma>('a_vista');
   const [selecionadaId, setSelecionadaId] = useState<string | null>(null);
 
@@ -45,7 +27,7 @@ export default function Negociacao() {
     setCarregando(true);
     setErro(null);
 
-    chamarApi<{ valorAtualizadoContrato: number; diasAtraso?: number; propostas: Proposta[]; diagnostico?: Diagnostico }>('/propostas', {
+    chamarApi<{ valorAtualizadoContrato: number; diasAtraso?: number; propostas: Proposta[] }>('/propostas', {
       clienteId: contratoAtual.clienteId,
       contratoId: contratoAtual.id,
       valorOriginal: contratoAtual.valorAtualizado,
@@ -54,7 +36,6 @@ export default function Negociacao() {
       .then((resposta) => {
         if (cancelado) return;
         setPropostas(resposta.propostas || []);
-        setDiagnostico(resposta.diagnostico);
         if (resposta.diasAtraso !== undefined) setDiasAtraso(resposta.diasAtraso);
         const primeiraAVista = resposta.propostas?.find((p) => p.tipo === 'a_vista');
         if (primeiraAVista) {
@@ -130,18 +111,17 @@ export default function Negociacao() {
       {!carregando && !erro && (
         <div className="grid lg:grid-cols-[1fr_320px] gap-6">
           <div>
-            <p className="text-sm text-claro-suave mb-5">
-              Valor atualizado da dívida:{' '}
-              <span className="font-mono text-claro-texto">
-                {formatarMoeda(contratoAtual.valorAtualizado)}
-              </span>
+            <div className="mb-5">
+              <p className="text-sm text-claro-suave">
+                Valor atualizado da dívida:{' '}
+                <span className="font-mono text-claro-texto">
+                  {formatarMoeda(contratoAtual.valorAtualizado)}
+                </span>
+              </p>
               {diasAtraso !== null && (
-                <>
-                  {' '}
-                  · <span className="text-red-600 font-medium">{diasAtraso} dias em atraso</span>
-                </>
+                <p className="text-sm text-red-600 font-medium mt-0.5">{diasAtraso} dias em atraso</p>
               )}
-            </p>
+            </div>
 
             {/* Abas: forma de pagamento */}
             <div className="flex gap-2 mb-5">
@@ -170,27 +150,6 @@ export default function Negociacao() {
                 </button>
               )}
             </div>
-
-            {diagnostico && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-xs text-amber-800 font-mono space-y-1.5 mb-5">
-                <p className="font-sans font-semibold text-amber-900">Diagnóstico (temporário):</p>
-                <p>{diagnostico.totalNegociacoesConfiguradas} negociação(ões) configurada(s).</p>
-                {diagnostico.tentativas.map((t) => (
-                  <div key={t.negociacaoId} className="space-y-1">
-                    <p>
-                      {t.negociacaoNome || t.negociacaoId}:{' '}
-                      {t.ok
-                        ? `${t.parcelamentosGerados} parcelamento(s) gerado(s) (${t.totalParcelamentosNaResposta} na resposta antes do filtro), valorDivida=${t.valorDivida}`
-                        : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
-                    </p>
-                    {t.corpoEnviado && <p className="break-all opacity-70">enviado: {JSON.stringify(t.corpoEnviado)}</p>}
-                    {t.ok && (
-                      <p className="break-all opacity-80">resposta: {JSON.stringify(t.respostaCompleta)}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
 
             {propostas.length === 0 && (
               <p className="text-claro-suave text-sm">Nenhuma condição de negociação disponível para este contrato no momento.</p>
