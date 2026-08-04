@@ -305,10 +305,25 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
           });
       });
 
+      // Quando mais de uma negociação gera uma proposta pro mesmo
+      // "formato" de pagamento (ex: as duas oferecem 2x), isso pareceria
+      // duplicata pro cliente — mantemos só a de menor valor total
+      // (a melhor oferta), sem fixar no código qual negociação "ganha".
+      const melhoresPorFormato = new Map();
+      propostas.forEach((proposta) => {
+        const formato =
+          proposta.tipo === 'a_vista' ? 'avista' : `parcelado_${(proposta.parcelas || []).length}`;
+        const atual = melhoresPorFormato.get(formato);
+        if (!atual || Number(proposta.valorTotal) < Number(atual.valorTotal)) {
+          melhoresPorFormato.set(formato, proposta);
+        }
+      });
+      const propostasSemDuplicata = Array.from(melhoresPorFormato.values());
+
       return {
         valorAtualizadoContrato,
         diasAtraso,
-        propostas,
+        propostas: propostasSemDuplicata,
         diagnostico: { totalNegociacoesConfiguradas: negociacoes.length, tentativas: diagnostico },
       };
     },
