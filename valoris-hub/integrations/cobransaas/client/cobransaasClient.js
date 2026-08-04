@@ -93,10 +93,30 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
    * numeroParcelas 1 (ou ausência de parcelas) = à vista.
    */
   function mapearParcelamentoParaProposta(negociacaoId, parcelamento) {
-    const ehAVista = !parcelamento.numeroParcelas || parcelamento.numeroParcelas <= 1;
+    // CORREÇÃO: numeroParcelas="1" não é à vista — é "entrada + 1 parcela
+    // real", um parcelamento de 2 pagamentos. Só numeroParcelas=0 é à
+    // vista de verdade. (O <=1 antigo fazia duas opções aparecerem como
+    // "à vista", com valores/datas diferentes, confundindo o cliente.)
+    const numParcelas = Number(parcelamento.numeroParcelas) || 0;
+    const ehAVista = numParcelas <= 0;
+
+    const base = {
+      // Guardado pra montar o objeto `parcelamento` exigido pelo
+      // /acordos/efetivar (numeroParcelas, valorEntrada, dataEmissao,
+      // dataVencimento, descontoDivida, taxaOperacao, descontoTarifa,
+      // descontoTarifaParcela) — copiado direto da simulação, sem
+      // recalcular nada por conta própria.
+      _parcelamentoBruto: parcelamento,
+      // Precisam ir em TODO tipo de proposta (à vista ou parcelado) —
+      // sem isso o efetivar de uma proposta à vista mandaria
+      // negociacao/meioPagamento vazios.
+      _negociacaoId: negociacaoId,
+      _meioPagamentoId: parcelamento.meioPagamento?.id,
+    };
 
     if (ehAVista) {
       return {
+        ...base,
         id: `${negociacaoId}_avista`,
         tipo: 'a_vista',
         valorTotal: parcelamento.valorTotal,
@@ -105,7 +125,8 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     }
 
     return {
-      id: `${negociacaoId}_${parcelamento.numeroParcelas}x`,
+      ...base,
+      id: `${negociacaoId}_${numParcelas}x`,
       tipo: 'parcelado',
       valorTotal: parcelamento.valorTotal,
       entrada: parcelamento.valorEntrada
@@ -116,9 +137,6 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         valor: p.valorTotal,
         vencimento: p.dataVencimento,
       })),
-      // guardado pra montar o corpo do "efetivar" depois, sem expor no front
-      _negociacaoId: negociacaoId,
-      _meioPagamentoId: parcelamento.meioPagamento?.id,
     };
   }
 
@@ -296,26 +314,52 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     },
 
     /**
-     * Efetiva o acordo de verdade. `proposta` é o objeto de proposta que
-     * veio de listarPropostas (já carrega _negociacaoId/_meioPagamentoId
-     * e _parcelasComDesconto). Reenviamos o mesmo desconto que foi
-     * simulado e mostrado ao cliente — sem isso o acordo seria efetivado
-     * pelo valor cheio, sem o desconto.
+     * Efetiva o acordo de verdade — POST /api/acordos/efetivar.
      *
-     * NÃO CONFIRMADO AINDA: assumindo que /api/acordos/efetivar aceita o
-     * mesmo parâmetro `parcelas` documentado pro /simular. Precisa
-     * validar contra a documentação de "Efetivar Acordo" antes de confiar
-     * cegamente nisso em produção.
+     * A documentação oficial (Efetivar_Acordo.pdf) mostra que esse
+     * endpoint é BEM diferente do /simular: exige um objeto
+     * `parcelamento` completo (numeroParcelas, valorEntrada, dataEmissao,
+     * dataVencimento, descontoDivida, taxaOperacao, descontoTarifa —
+     * todos obrigatórios), montado aqui copiando exatamente os valores
+     * que a simulação (já com desconto aplicado) devolveu — nunca
+     * recalculados por nós. Se `parcelas` (lista de desconto por parcela)
+     * for enviada, cada item exige TODOS os campos de desconto (mesmo
+     * que zero), diferente do /simular onde eram opcionais.
      */
     async confirmarAcordo(clienteId, proposta) {
+      const bruto = proposta._parcelamentoBruto || {};
+
       const corpo = {
         cliente: clienteId,
         negociacao: proposta._negociacaoId,
         meioPagamento: proposta._meioPagamentoId,
+        parcelamento: {
+          numeroParcelas: Number(bruto.numeroParcelas) || 0,
+          valorEntrada: Number(bruto.valorEntrada) || 0,
+          dataEmissao: bruto.dataEmissao,
+          dataVencimento: bruto.dataVencimento,
+          descontoDivida: Number(bruto.descontoDivida) || 0,
+          taxaOperacao: Number(bruto.taxaOperacao) || 0,
+          descontoTarifa: Number(bruto.descontoTarifa) || 0,
+          descontoTarifaParcela: Number(bruto.descontoTarifaParcela) || 0,
+        },
       };
+
       if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
-        corpo.parcelas = proposta._parcelasComDesconto;
+        // No /efetivar, ao contrário do /simular, todo campo de desconto
+        // da Parcela é obrigatório — completamos com 0 os que não usamos.
+        corpo.parcelas = proposta._parcelasComDesconto.map((p) => ({
+          parcela: p.parcela,
+          descontoPrincipal: Number(p.descontoPrincipal) || 0,
+          descontoJuros: 0,
+          descontoPermanencia: 0,
+          descontoMora: 0,
+          descontoMulta: 0,
+          descontoOutros: 0,
+          valorDesconto: Number(p.descontoPrincipal) || 0,
+        }));
       }
+
       return chamarComAutenticacao({
         method: 'POST',
         path: '/api/assessorias/acordos/efetivar',
