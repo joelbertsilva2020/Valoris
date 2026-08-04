@@ -31,7 +31,7 @@ export default function ConfirmarAcordo() {
     setErro(null);
     setEnviando(true);
     try {
-      const resultado = await chamarApi<{ acordoId?: string; id?: string; linhaDigitavel?: string; urlBoleto?: string }>(
+      const resultado = await chamarApi<{ id?: string; numeroAcordo?: string; linhaDigitavel?: string; linkPagamento?: string }>(
         '/confirmar-acordo',
         {
           clienteId: contratoAtual!.clienteId,
@@ -43,9 +43,9 @@ export default function ConfirmarAcordo() {
         }
       );
       setAcordoConfirmado({
-        acordoId: resultado.acordoId || resultado.id || '',
+        acordoId: resultado.id || resultado.numeroAcordo || '',
         linhaDigitavel: resultado.linhaDigitavel,
-        urlBoleto: resultado.urlBoleto,
+        urlBoleto: resultado.linkPagamento,
       });
       navigate('/sucesso');
     } catch (e: any) {
