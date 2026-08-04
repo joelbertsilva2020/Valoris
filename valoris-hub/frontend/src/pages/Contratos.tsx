@@ -49,6 +49,9 @@ export default function Contratos() {
                 <span className="font-mono text-base sm:text-lg text-claro-texto">
                   {formatarMoeda(contrato.valorAtualizado)}
                 </span>
+                {contrato.diasAtraso !== undefined && contrato.diasAtraso !== null && (
+                  <p className="text-xs text-red-600 font-medium mt-0.5">{contrato.diasAtraso} dias em atraso</p>
+                )}
               </div>
               <ChevronRight size={18} className="text-claro-suave" />
             </div>
