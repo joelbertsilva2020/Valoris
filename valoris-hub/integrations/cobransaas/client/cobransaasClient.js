@@ -269,28 +269,46 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
 
       const diagnostico = [];
 
+      async function simular(corpo) {
+        return chamarComAutenticacao({
+          method: 'POST',
+          path: '/api/assessorias/acordos/simular',
+          headers: { 'Content-Type': 'application/json' },
+          body: corpo,
+        });
+      }
+
       const resultados = await Promise.all(
         negociacoes.map(async (negociacao) => {
           const corpoBase = { cliente: clienteId, negociacao: negociacao.id };
           try {
-            const previa = await chamarComAutenticacao({
-              method: 'POST',
-              path: '/api/assessorias/acordos/simular',
-              headers: { 'Content-Type': 'application/json' },
-              body: corpoBase,
-            });
+            // 1) prévia crua — só pra descobrir o desconto disponível.
+            // Negociações do tipo "assessoria manual" podem devolver
+            // ZERO parcelamentos aqui (janelas de data ainda não
+            // reveladas) — é esperado, resolvido no passo 2.
+            const previa = await simular(corpoBase);
 
             const parcelasComDesconto = (previa.parcelas || [])
               .filter((p) => Number(p.descontoPrincipalMax) > 0)
               .map((p) => ({ parcela: p.parcela, descontoPrincipal: Number(p.descontoPrincipalMax) }));
 
+            // 2) se há desconto, uma chamada intermediária APLICANDO o
+            // desconto (sem ainda mexer nas datas) — é só depois disso
+            // que negociações "assessoria manual" revelam as janelas de
+            // data reais (dataEmissaoMin/Max, dataVencimentoMin/Max) em
+            // `parcelamentos`. Sem desconto, a prévia já serve de base.
+            const baseParaDatas =
+              parcelasComDesconto.length > 0
+                ? await simular({ ...corpoBase, parcelas: parcelasComDesconto })
+                : previa;
+
             // "Hoje" na visão do próprio CobranSaaS (dataOperacao) — evita
             // qualquer divergência de fuso horário entre o servidor da
             // Vercel e o horário de Brasília.
-            const hojeCobranSaas = previa.dataOperacao ? paraData(previa.dataOperacao) : new Date();
+            const hojeCobranSaas = baseParaDatas.dataOperacao ? paraData(baseParaDatas.dataOperacao) : new Date();
             const dataEmissaoDesejada = paraIso(somarDiasUteis(hojeCobranSaas, 3));
 
-            const parcelamentosComData = (previa.parcelamentos || [])
+            const parcelamentosComData = (baseParaDatas.parcelamentos || [])
               .filter((p) => p.habilitado !== false)
               .map((p) => {
                 const numParcelas = Number(p.numeroParcelas) || 0;
@@ -306,15 +324,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
                 return { numeroParcelas: numParcelas, dataEmissao: dataEmissaoFinal, dataVencimento: dataVencimentoFinal };
               });
 
+            // 3) chamada final — desconto e datas padronizadas juntos.
             const corpoFinal = { ...corpoBase, parcelamentos: parcelamentosComData };
             if (parcelasComDesconto.length > 0) corpoFinal.parcelas = parcelasComDesconto;
 
-            const respostaFinal = await chamarComAutenticacao({
-              method: 'POST',
-              path: '/api/assessorias/acordos/simular',
-              headers: { 'Content-Type': 'application/json' },
-              body: corpoFinal,
-            });
+            const respostaFinal = await simular(corpoFinal);
 
             diagnostico.push({
               negociacaoId: negociacao.id,
