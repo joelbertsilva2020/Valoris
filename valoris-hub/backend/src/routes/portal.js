@@ -5,7 +5,7 @@ const { validarCpf } = require('../utils/cpf');
 const router = express.Router();
 
 function tratarErro(res, contexto, erro) {
-  console.error(`[Portal] Erro em ${contexto}:`, erro.message);
+  console.error(`[Portal] Erro em ${contexto}:`, erro.message, erro.detalhe ? JSON.stringify(erro.detalhe) : '');
   const status = erro.status === 404 ? 404 : erro.status === 400 ? 400 : 500;
   res.status(status).json({
     erro:
@@ -14,6 +14,10 @@ function tratarErro(res, contexto, erro) {
         : status === 400
         ? erro.message
         : 'Não foi possível concluir agora. Tente novamente em instantes.',
+    // Fase de testes: manda o detalhe real que o CobranSaaS devolveu,
+    // pra não precisar caçar log toda vez que algo falha. Tirar antes do
+    // lançamento pra clientes finais.
+    detalhe: erro.detalhe,
   });
 }
 
