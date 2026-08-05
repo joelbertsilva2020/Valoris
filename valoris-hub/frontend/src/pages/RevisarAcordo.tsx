@@ -131,8 +131,10 @@ export default function RevisarAcordo() {
 
         <BotaoMarca
           full
-          disabled={!aceitou}
-          onClick={() => navigate('/confirmar-acordo')}
+          aria-disabled={!aceitou}
+          onClick={() => {
+            if (aceitou) navigate('/confirmar-acordo');
+          }}
           className={
             aceitou
               ? ''
