@@ -14,23 +14,29 @@ interface PortalPainelProps {
  * negociação (Contratos, Negociação, Revisar, Confirmar, Sucesso),
  * diferenciando visualmente do site institucional escuro sem precisar
  * mexer no Layout/Header globais.
+ *
+ * Mais largo que o container padrão do site (max-w-3xl) só a partir do
+ * desktop (lg) — no mobile continua exatamente do tamanho do container
+ * normal, evitando quebra de layout em telas pequenas.
  */
 export default function PortalPainel({ rotulo, titulo, acaoTopo, children }: PortalPainelProps) {
   return (
-    <div className="rounded-2xl overflow-hidden border border-linha shadow-2xl">
-      <div className="bg-grad-marca px-6 py-5 sm:px-8 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-        <div className="min-w-0">
-          {rotulo && (
-            <p className="text-white/75 text-[11px] font-mono uppercase tracking-wide mb-1">{rotulo}</p>
-          )}
-          <h1 className="text-white font-display font-semibold text-xl sm:text-2xl truncate">{titulo}</h1>
+    <div className="lg:relative lg:left-1/2 lg:-translate-x-1/2 lg:w-[56rem]">
+      <div className="rounded-2xl overflow-hidden border border-linha shadow-2xl">
+        <div className="bg-grad-marca px-6 py-5 sm:px-8 grid grid-cols-[1fr_auto_auto] items-center gap-3 sm:gap-5">
+          <div className="min-w-0">
+            {rotulo && (
+              <p className="text-white/75 text-[11px] font-mono uppercase tracking-wide mb-1">{rotulo}</p>
+            )}
+            <h1 className="text-white font-display font-semibold text-lg sm:text-2xl truncate">{titulo}</h1>
+          </div>
+          <span className="bg-white rounded-xl h-11 sm:h-14 px-3 sm:px-4 flex items-center shadow-sm flex-shrink-0">
+            <img src="/parceiros/nosso-pay.png" alt="Nosso Pay" className="h-6 sm:h-9 w-auto object-contain" />
+          </span>
+          <div className="flex-shrink-0">{acaoTopo}</div>
         </div>
-        <span className="bg-white rounded-xl h-14 px-4 flex items-center shadow-sm justify-self-center flex-shrink-0">
-          <img src="/parceiros/nosso-pay.png" alt="Nosso Pay" className="h-9 w-auto object-contain" />
-        </span>
-        <div className="justify-self-end flex-shrink-0">{acaoTopo}</div>
+        <div className="bg-claro-bg px-5 py-7 sm:px-8 sm:py-9">{children}</div>
       </div>
-      <div className="bg-claro-bg px-5 py-7 sm:px-8 sm:py-9">{children}</div>
     </div>
   );
 }
