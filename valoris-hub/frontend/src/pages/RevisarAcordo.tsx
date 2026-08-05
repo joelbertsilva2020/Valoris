@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { usePortal } from '../state/PortalContext';
+import { chamarApi } from '../lib/api';
 import { formatarMoeda, formatarData } from '../lib/cpf';
 import PortalPainel from '../components/PortalPainel';
 import BotaoMarca from '../components/BotaoMarca';
@@ -9,8 +10,15 @@ import AvisoSessao from '../components/AvisoSessao';
 
 export default function RevisarAcordo() {
   const navigate = useNavigate();
-  const { contratoAtual, propostaEscolhida, diasAtraso } = usePortal();
+  const {
+    cpf, contratoAtual, propostaEscolhida, diasAtraso,
+    canalConfirmacao, setCanalConfirmacao,
+    emailConfirmacao, setEmailConfirmacao,
+    setAcordoConfirmado,
+  } = usePortal();
   const [aceitou, setAceitou] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   if (!contratoAtual || !propostaEscolhida) return <AvisoSessao />;
 
@@ -20,6 +28,40 @@ export default function RevisarAcordo() {
   const parcelasReais = p.entrada ? (p.parcelas || []).slice(1) : p.parcelas || [];
   const totalPagamentos = p.tipo === 'a_vista' ? 1 : (p.parcelas || []).length;
   const valorDesconto = contratoAtual.valorAtualizado - Number(p.valorTotal);
+
+  async function confirmar(e: FormEvent) {
+    e.preventDefault();
+    if (!aceitou) return;
+    if (!emailConfirmacao) {
+      setErro('Informe um e-mail válido.');
+      return;
+    }
+    setErro(null);
+    setEnviando(true);
+    try {
+      const resultado = await chamarApi<{ id?: string; numeroAcordo?: string; linhaDigitavel?: string; linkPagamento?: string }>(
+        '/confirmar-acordo',
+        {
+          clienteId: contratoAtual!.clienteId,
+          contratoId: contratoAtual!.id,
+          propostaEscolhida,
+          canal: canalConfirmacao,
+          email: emailConfirmacao,
+          cpf,
+        }
+      );
+      setAcordoConfirmado({
+        acordoId: resultado.id || resultado.numeroAcordo || '',
+        linhaDigitavel: resultado.linhaDigitavel,
+        urlBoleto: resultado.linkPagamento,
+      });
+      navigate('/sucesso');
+    } catch (e: any) {
+      setErro(e.message || 'Não foi possível confirmar o acordo agora.');
+    } finally {
+      setEnviando(false);
+    }
+  }
 
   return (
     <PortalPainel
@@ -34,9 +76,9 @@ export default function RevisarAcordo() {
         </button>
       }
     >
-      <p className="text-claro-suave text-sm mb-6">Confira todas as condições do acordo antes de continuar.</p>
+      <p className="text-claro-suave text-sm mb-6">Confira todas as condições e finalize o acordo.</p>
 
-      <div className="max-w-md space-y-4">
+      <form onSubmit={confirmar} className="max-w-md space-y-4">
         {/* Situação atual da dívida */}
         <div className="bg-claro-superficie border border-claro-linha rounded-xl p-5 space-y-2.5">
           <p className="text-xs uppercase tracking-wide text-claro-suave font-mono mb-1">Situação atual</p>
@@ -115,6 +157,32 @@ export default function RevisarAcordo() {
           </div>
         )}
 
+        {/* Canal e e-mail de contato */}
+        <div className="bg-claro-superficie border border-claro-linha rounded-xl p-5 space-y-4">
+          <p className="text-xs uppercase tracking-wide text-claro-suave font-mono">Enviar confirmação por</p>
+          <div>
+            <label className="block text-sm font-medium text-claro-texto mb-1.5">Selecione uma opção</label>
+            <select
+              value={canalConfirmacao}
+              onChange={(e) => setCanalConfirmacao(e.target.value)}
+              className="w-full bg-white border border-claro-linha rounded-lg px-3.5 py-2.5 text-claro-texto focus:outline-none focus:border-roxo"
+            >
+              <option value="email">Email</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-claro-texto mb-1.5">Informe seu e-mail</label>
+            <input
+              type="email"
+              required
+              value={emailConfirmacao}
+              onChange={(e) => setEmailConfirmacao(e.target.value)}
+              placeholder="seuemail@exemplo.com.br"
+              className="w-full bg-white border border-claro-linha rounded-lg px-3.5 py-2.5 text-claro-texto placeholder:text-claro-suave focus:outline-none focus:border-roxo"
+            />
+          </div>
+        </div>
+
         <label className="flex items-start gap-3 text-sm text-claro-texto cursor-pointer select-none">
           <span
             onClick={() => setAceitou((v) => !v)}
@@ -129,21 +197,37 @@ export default function RevisarAcordo() {
           </span>
         </label>
 
+        {erro && (
+          <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3.5 text-sm break-words">
+            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+            {erro}
+          </div>
+        )}
+
         <BotaoMarca
           full
-          aria-disabled={!aceitou}
-          onClick={() => {
-            if (aceitou) navigate('/confirmar-acordo');
-          }}
+          type="submit"
+          aria-disabled={!aceitou || enviando}
           className={
-            aceitou
-              ? ''
-              : 'opacity-60 saturate-[.4] cursor-not-allowed hover:opacity-75 hover:saturate-50 transition-all'
+            !aceitou || enviando
+              ? 'opacity-60 saturate-[.4] cursor-not-allowed hover:opacity-75 hover:saturate-50 transition-all'
+              : ''
           }
+          onClick={(e) => {
+            if (!aceitou || enviando) e.preventDefault();
+          }}
         >
-          Confirmar e Continuar
+          {enviando ? (
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 size={16} className="animate-spin" /> Confirmando…
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <ShieldCheck size={16} /> Confirme o acordo
+            </span>
+          )}
         </BotaoMarca>
-      </div>
+      </form>
     </PortalPainel>
   );
 }
