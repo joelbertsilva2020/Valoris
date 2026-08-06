@@ -18,7 +18,8 @@ export async function chamarApi<T = any>(caminho: string, corpo: unknown): Promi
       console.error(`[Portal] ${caminho} respondeu ${resposta.status}:`, dados);
       const mensagem = dados.erro || 'Algo deu errado. Tente novamente.';
       const detalhe = dados.detalhe ? ` — detalhe: ${JSON.stringify(dados.detalhe)}` : '';
-      throw new Error(mensagem + detalhe);
+      const corpoEnviado = dados.corpoEnviado ? ` — enviado: ${JSON.stringify(dados.corpoEnviado)}` : '';
+      throw new Error(mensagem + detalhe + corpoEnviado);
     }
     return dados as T;
   } catch (erro: any) {
