@@ -414,14 +414,17 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
      * Efetiva o acordo de verdade — POST /api/acordos/efetivar.
      *
      * A documentação oficial (Efetivar_Acordo.pdf) mostra que esse
-     * endpoint é BEM diferente do /simular: exige um objeto
-     * `parcelamento` completo (numeroParcelas, valorEntrada, dataEmissao,
-     * dataVencimento, descontoDivida, taxaOperacao, descontoTarifa —
-     * todos obrigatórios), montado aqui copiando exatamente os valores
-     * que a simulação (já com desconto aplicado) devolveu — nunca
-     * recalculados por nós. Se `parcelas` (lista de desconto por parcela)
-     * for enviada, cada item exige TODOS os campos de desconto (mesmo
-     * que zero), diferente do /simular onde eram opcionais.
+     * endpoint exige um objeto `parcelamento` completo (numeroParcelas,
+     * valorEntrada, dataEmissao, dataVencimento, descontoDivida,
+     * taxaOperacao, descontoTarifa — todos obrigatórios) e, se enviar
+     * `parcelas`, TODOS os campos de desconto por parcela são
+     * obrigatórios (diferente do /simular, onde são opcionais). Montado
+     * copiando exatamente o que a simulação (já com desconto e datas
+     * aplicados) devolveu — nunca recalculado por nós.
+     *
+     * Se der erro, o corpo exato enviado vai junto (`erro.corpoEnviado`)
+     * — aparece na tela graças ao `detalhe` que o backend já repassa,
+     * sem precisar caçar isso de novo manualmente.
      */
     async confirmarAcordo(clienteId, proposta) {
       const bruto = proposta._parcelamentoBruto || {};
@@ -443,8 +446,6 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       };
 
       if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
-        // No /efetivar, ao contrário do /simular, todo campo de desconto
-        // da Parcela é obrigatório — completamos com 0 os que não usamos.
         corpo.parcelas = proposta._parcelasComDesconto.map((p) => ({
           parcela: p.parcela,
           descontoPrincipal: Number(p.descontoPrincipal) || 0,
@@ -457,12 +458,17 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         }));
       }
 
-      return chamarComAutenticacao({
-        method: 'POST',
-        path: '/api/assessorias/acordos/efetivar',
-        headers: { 'Content-Type': 'application/json' },
-        body: corpo,
-      });
+      try {
+        return await chamarComAutenticacao({
+          method: 'POST',
+          path: '/api/assessorias/acordos/efetivar',
+          headers: { 'Content-Type': 'application/json' },
+          body: corpo,
+        });
+      } catch (erro) {
+        erro.corpoEnviado = corpo;
+        throw erro;
+      }
     },
 
     /** Consulta os acordos de um cliente, sempre ao vivo. */
