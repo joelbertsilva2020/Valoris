@@ -418,16 +418,44 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
      * valorEntrada, dataEmissao, dataVencimento, descontoDivida,
      * taxaOperacao, descontoTarifa — todos obrigatórios) e, se enviar
      * `parcelas`, TODOS os campos de desconto por parcela são
-     * obrigatórios (diferente do /simular, onde são opcionais). Montado
-     * copiando exatamente o que a simulação (já com desconto e datas
-     * aplicados) devolveu — nunca recalculado por nós.
+     * obrigatórios (diferente do /simular, onde são opcionais).
      *
-     * Se der erro, o corpo exato enviado vai junto (`erro.corpoEnviado`)
-     * — aparece na tela graças ao `detalhe` que o backend já repassa,
-     * sem precisar caçar isso de novo manualmente.
+     * IMPORTANTE (confirmado pelo usuário testando no CobranSaaS): o
+     * CobranSaaS distribui os centavos entre as parcelas de um jeito que
+     * a gente não consegue reproduzir por conta própria — então NUNCA
+     * reconstruímos o `parcelamento` a partir de pedaços capturados
+     * antes. Em vez disso, simulamos de novo, bem na hora de efetivar,
+     * só pra essa forma de pagamento específica (mesmo desconto, mesma
+     * data), e usamos a resposta inteira como veio — sem tocar em nenhum
+     * valor.
      */
     async confirmarAcordo(clienteId, proposta) {
-      const bruto = proposta._parcelamentoBruto || {};
+      const numeroParcelasAlvo = Number(proposta._parcelamentoBruto?.numeroParcelas) || 0;
+      const dataEmissaoAlvo = proposta._parcelamentoBruto?.dataEmissao;
+      const dataVencimentoAlvo = proposta._parcelamentoBruto?.dataVencimento;
+
+      const corpoSimulacao = {
+        cliente: clienteId,
+        negociacao: proposta._negociacaoId,
+        parcelamentos: [
+          { numeroParcelas: numeroParcelasAlvo, dataEmissao: dataEmissaoAlvo, dataVencimento: dataVencimentoAlvo },
+        ],
+      };
+      if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
+        corpoSimulacao.parcelas = proposta._parcelasComDesconto;
+      }
+
+      const simulacaoFinal = await chamarComAutenticacao({
+        method: 'POST',
+        path: '/api/assessorias/acordos/simular',
+        headers: { 'Content-Type': 'application/json' },
+        body: corpoSimulacao,
+      });
+
+      const bruto =
+        (simulacaoFinal.parcelamentos || []).find((p) => (Number(p.numeroParcelas) || 0) === numeroParcelasAlvo) ||
+        proposta._parcelamentoBruto ||
+        {};
 
       const corpo = {
         cliente: clienteId,
