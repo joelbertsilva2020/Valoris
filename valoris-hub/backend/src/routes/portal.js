@@ -18,6 +18,7 @@ function tratarErro(res, contexto, erro) {
     // pra não precisar caçar log toda vez que algo falha. Tirar antes do
     // lançamento pra clientes finais.
     detalhe: erro.detalhe,
+    corpoEnviado: erro.corpoEnviado,
   });
 }
 
