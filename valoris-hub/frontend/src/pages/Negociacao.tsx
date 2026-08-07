@@ -8,6 +8,22 @@ import PortalPainel from '../components/PortalPainel';
 import BotaoMarca from '../components/BotaoMarca';
 import AvisoSessao from '../components/AvisoSessao';
 
+interface DiagnosticoTentativa {
+  negociacaoId: string;
+  negociacaoNome?: string;
+  ok: boolean;
+  descontoDisponivel?: boolean;
+  corpoEnviado?: unknown;
+  parcelamentosGerados?: number;
+  valorDivida?: number;
+  status?: number | null;
+  detalhe?: unknown;
+}
+interface Diagnostico {
+  totalNegociacoesConfiguradas: number;
+  tentativas: DiagnosticoTentativa[];
+}
+
 type Forma = 'a_vista' | 'parcelado';
 
 export default function Negociacao() {
@@ -17,6 +33,7 @@ export default function Negociacao() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [propostas, setPropostas] = useState<Proposta[]>([]);
+  const [diagnostico, setDiagnostico] = useState<Diagnostico | undefined>(undefined);
   const [forma, setForma] = useState<Forma>('a_vista');
   const [selecionadaId, setSelecionadaId] = useState<string | null>(null);
 
@@ -27,7 +44,7 @@ export default function Negociacao() {
     setCarregando(true);
     setErro(null);
 
-    chamarApi<{ valorAtualizadoContrato: number; diasAtraso?: number; propostas: Proposta[] }>('/propostas', {
+    chamarApi<{ valorAtualizadoContrato: number; diasAtraso?: number; propostas: Proposta[]; diagnostico?: Diagnostico }>('/propostas', {
       clienteId: contratoAtual.clienteId,
       contratoId: contratoAtual.id,
       valorOriginal: contratoAtual.valorAtualizado,
@@ -36,6 +53,7 @@ export default function Negociacao() {
       .then((resposta) => {
         if (cancelado) return;
         setPropostas(resposta.propostas || []);
+        setDiagnostico(resposta.diagnostico);
         if (resposta.diasAtraso !== undefined) setDiasAtraso(resposta.diasAtraso);
         const primeiraAVista = resposta.propostas?.find((p) => p.tipo === 'a_vista');
         if (primeiraAVista) {
@@ -122,6 +140,24 @@ export default function Negociacao() {
                 <p className="text-sm text-red-600 font-medium mt-0.5">{diasAtraso} dias em atraso</p>
               )}
             </div>
+
+            {diagnostico && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-xs text-amber-800 font-mono space-y-2 mb-5">
+                <p className="font-sans font-semibold text-amber-900">Diagnóstico (temporário):</p>
+                <p>{diagnostico.totalNegociacoesConfiguradas} negociação(ões) configurada(s).</p>
+                {diagnostico.tentativas.map((t) => (
+                  <div key={t.negociacaoId} className="space-y-1">
+                    <p>
+                      {t.negociacaoNome || t.negociacaoId}:{' '}
+                      {t.ok
+                        ? `desconto disponível: ${t.descontoDisponivel ? 'sim' : 'não'} — ${t.parcelamentosGerados} parcelamento(s) gerado(s), valorDivida=${t.valorDivida}`
+                        : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
+                    </p>
+                    {t.corpoEnviado && <p className="break-all opacity-70">enviado: {JSON.stringify(t.corpoEnviado)}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Abas: forma de pagamento */}
             <div className="flex gap-2 mb-5">
