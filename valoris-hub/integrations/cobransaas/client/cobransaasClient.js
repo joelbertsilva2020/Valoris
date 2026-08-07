@@ -313,15 +313,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
               .map((p) => {
                 const numParcelas = Number(p.numeroParcelas) || 0;
                 const dataEmissaoFinal = limitarIntervalo(dataEmissaoDesejada, p.dataEmissaoMin, p.dataEmissaoMax);
-                const dataVencimentoFinal =
-                  numParcelas === 0
-                    ? dataEmissaoFinal
-                    : limitarIntervalo(
-                        paraIso(somarDiasCorridos(paraData(dataEmissaoFinal), 30)),
-                        p.dataVencimentoMin,
-                        p.dataVencimentoMax
-                      );
-                return { numeroParcelas: numParcelas, dataEmissao: dataEmissaoFinal, dataVencimento: dataVencimentoFinal };
+                // Só a data de emissão (entrada/à vista) é escolhida por
+                // nós — o vencimento das parcelas seguintes o CobranSaaS
+                // calcula sozinho, seguindo o ciclo configurado na
+                // negociação (não forçamos +30 dias por conta própria).
+                return { numeroParcelas: numParcelas, dataEmissao: dataEmissaoFinal };
               });
 
             // 3) chamada final — desconto e datas padronizadas juntos.
@@ -432,14 +428,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     async confirmarAcordo(clienteId, proposta) {
       const numeroParcelasAlvo = Number(proposta._parcelamentoBruto?.numeroParcelas) || 0;
       const dataEmissaoAlvo = proposta._parcelamentoBruto?.dataEmissao;
-      const dataVencimentoAlvo = proposta._parcelamentoBruto?.dataVencimento;
 
       const corpoSimulacao = {
         cliente: clienteId,
         negociacao: proposta._negociacaoId,
-        parcelamentos: [
-          { numeroParcelas: numeroParcelasAlvo, dataEmissao: dataEmissaoAlvo, dataVencimento: dataVencimentoAlvo },
-        ],
+        parcelamentos: [{ numeroParcelas: numeroParcelasAlvo, dataEmissao: dataEmissaoAlvo }],
       };
       if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
         corpoSimulacao.parcelas = proposta._parcelasComDesconto;
