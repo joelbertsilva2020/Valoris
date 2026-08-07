@@ -257,6 +257,10 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
               corpoEnviado: corpoFinal,
               parcelamentosGerados: (respostaFinal.parcelamentos || []).filter((p) => p.habilitado !== false).length,
               valorDivida: respostaFinal.valorDivida,
+              // Resposta completa da simulação, sem cortar nada — todas
+              // as datas mín/máx, descontos mín/máx, taxas etc, do jeito
+              // que o CobranSaaS devolveu.
+              respostaCompleta: respostaFinal,
             });
 
             return { resposta: respostaFinal, parcelasComDesconto };
