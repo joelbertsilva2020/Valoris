@@ -16,6 +16,7 @@ interface DiagnosticoTentativa {
   corpoEnviado?: unknown;
   parcelamentosGerados?: number;
   valorDivida?: number;
+  respostaCompleta?: unknown;
   status?: number | null;
   detalhe?: unknown;
 }
@@ -154,6 +155,9 @@ export default function Negociacao() {
                         : `falhou (status ${t.status ?? '?'}) — ${JSON.stringify(t.detalhe)}`}
                     </p>
                     {t.corpoEnviado && <p className="break-all opacity-70">enviado: {JSON.stringify(t.corpoEnviado)}</p>}
+                    {t.respostaCompleta && (
+                      <p className="break-all opacity-80">resposta completa: {JSON.stringify(t.respostaCompleta)}</p>
+                    )}
                   </div>
                 ))}
               </div>
