@@ -27,48 +27,6 @@
 
 const axios = require('axios');
 
-// ---------------------------------------------------------------------------
-// Utilidades de data — só agenda DENTRO da janela que o próprio CobranSaaS
-// permite (dataEmissaoMin/Max, dataVencimentoMin/Max, devolvidas por ele
-// mesmo na simulação). Nenhum valor financeiro é calculado aqui, só datas.
-// ---------------------------------------------------------------------------
-
-function paraData(isoDate) {
-  const [ano, mes, dia] = isoDate.split('-').map(Number);
-  return new Date(Date.UTC(ano, mes - 1, dia));
-}
-
-function paraIso(data) {
-  return data.toISOString().slice(0, 10);
-}
-
-/** Soma dias ÚTEIS (pula sábado/domingo — feriados não são considerados,
- * não temos calendário de feriados disponível). */
-function somarDiasUteis(dataBase, quantidade) {
-  const resultado = new Date(dataBase);
-  let somados = 0;
-  while (somados < quantidade) {
-    resultado.setUTCDate(resultado.getUTCDate() + 1);
-    const diaSemana = resultado.getUTCDay();
-    if (diaSemana !== 0 && diaSemana !== 6) somados++;
-  }
-  return resultado;
-}
-
-function somarDiasCorridos(dataBase, quantidade) {
-  const resultado = new Date(dataBase);
-  resultado.setUTCDate(resultado.getUTCDate() + quantidade);
-  return resultado;
-}
-
-/** Prende uma data ISO dentro de [min, max], se vierem informados. */
-function limitarIntervalo(valorIso, minIso, maxIso) {
-  let v = valorIso;
-  if (minIso && v < minIso) v = minIso;
-  if (maxIso && v > maxIso) v = maxIso;
-  return v;
-}
-
 function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenAplicativo, tenant }) {
   if (!proxyUrl || !proxySecret || !codigoAplicativo || !tokenAplicativo) {
     throw new Error(
@@ -244,25 +202,23 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     },
 
     /**
-     * Simula cada negociação disponível pro cliente. Pra cada negociação,
-     * faz DUAS chamadas de simulação:
-     * 1) uma "prévia" simples, só pra descobrir (a) quanto de desconto de
-     *    principal (descontoPrincipalMax) o CobranSaaS permite pra cada
-     *    parcela da dívida, e (b) as janelas de data que ele aceita
-     *    (dataEmissaoMin/Max, dataVencimentoMin/Max) pra cada opção de
-     *    parcelamento;
-     * 2) uma simulação final, reenviando pro CobranSaaS:
-     *    - `parcelas: [{parcela, descontoPrincipal}]` com o desconto
-     *      máximo, quando existir — é o CobranSaaS que recalcula os
-     *      parcelamentos já com o desconto aplicado de verdade;
-     *    - `parcelamentos: [{numeroParcelas, dataEmissao, dataVencimento}]`
-     *      com datas padronizadas (emissão/à vista sempre em hoje + 3
-     *      dias úteis; vencimento da 1ª parcela real sempre 30 dias
-     *      corridos depois da emissão) — sempre dentro da janela que o
-     *      próprio CobranSaaS informou ser válida.
-     * Isso segue a regra de nunca calcularmos valor/desconto por conta
-     * própria — só escolhemos QUAL DATA usar dentro do que é permitido;
-     * quem calcula os valores finais é sempre o CobranSaaS.
+     * Simula cada negociação disponível pro cliente. Regra fixa: a
+     * Valoris NUNCA calcula acordos — toda regra financeira (parcelas,
+     * datas, distribuição de centavos, descontos) pertence exclusivamente
+     * ao CobranSaaS. Aqui só descobrimos o desconto disponível e pedimos
+     * pro CobranSaaS aplicar — nunca inventamos parcelamentos, datas ou
+     * valores por conta própria.
+     *
+     * Duas chamadas por negociação:
+     * 1) prévia crua — só pra descobrir quanto de desconto de principal
+     *    (descontoPrincipalMax) o CobranSaaS permite pra cada parcela da
+     *    dívida (negociações "assessoria manual" podem devolver ZERO
+     *    parcelamentos aqui — só revelam as opções depois do passo 2);
+     * 2) aplica esse desconto (`parcelas: [{parcela, descontoPrincipal}]`)
+     *    — é essa resposta, com TODAS as opções de parcelamento já
+     *    calculadas do início ao fim pelo CobranSaaS (valores, datas,
+     *    distribuição de centavos), que vira a fonte de verdade. Nada
+     *    dela é recalculado ou reconstruído por nós.
      */
     async listarPropostas(clienteId) {
       const negociacoes = await this.listarNegociacoesDisponiveis();
@@ -282,49 +238,16 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         negociacoes.map(async (negociacao) => {
           const corpoBase = { cliente: clienteId, negociacao: negociacao.id };
           try {
-            // 1) prévia crua — só pra descobrir o desconto disponível.
-            // Negociações do tipo "assessoria manual" podem devolver
-            // ZERO parcelamentos aqui (janelas de data ainda não
-            // reveladas) — é esperado, resolvido no passo 2.
             const previa = await simular(corpoBase);
 
             const parcelasComDesconto = (previa.parcelas || [])
               .filter((p) => Number(p.descontoPrincipalMax) > 0)
               .map((p) => ({ parcela: p.parcela, descontoPrincipal: Number(p.descontoPrincipalMax) }));
 
-            // 2) se há desconto, uma chamada intermediária APLICANDO o
-            // desconto (sem ainda mexer nas datas) — é só depois disso
-            // que negociações "assessoria manual" revelam as janelas de
-            // data reais (dataEmissaoMin/Max, dataVencimentoMin/Max) em
-            // `parcelamentos`. Sem desconto, a prévia já serve de base.
-            const baseParaDatas =
-              parcelasComDesconto.length > 0
-                ? await simular({ ...corpoBase, parcelas: parcelasComDesconto })
-                : previa;
-
-            // "Hoje" na visão do próprio CobranSaaS (dataOperacao) — evita
-            // qualquer divergência de fuso horário entre o servidor da
-            // Vercel e o horário de Brasília.
-            const hojeCobranSaas = baseParaDatas.dataOperacao ? paraData(baseParaDatas.dataOperacao) : new Date();
-            const dataEmissaoDesejada = paraIso(somarDiasUteis(hojeCobranSaas, 3));
-
-            const parcelamentosComData = (baseParaDatas.parcelamentos || [])
-              .filter((p) => p.habilitado !== false)
-              .map((p) => {
-                const numParcelas = Number(p.numeroParcelas) || 0;
-                const dataEmissaoFinal = limitarIntervalo(dataEmissaoDesejada, p.dataEmissaoMin, p.dataEmissaoMax);
-                // Só a data de emissão (entrada/à vista) é escolhida por
-                // nós — o vencimento das parcelas seguintes o CobranSaaS
-                // calcula sozinho, seguindo o ciclo configurado na
-                // negociação (não forçamos +30 dias por conta própria).
-                return { numeroParcelas: numParcelas, dataEmissao: dataEmissaoFinal };
-              });
-
-            // 3) chamada final — desconto e datas padronizadas juntos.
-            const corpoFinal = { ...corpoBase, parcelamentos: parcelamentosComData };
+            const corpoFinal = { ...corpoBase };
             if (parcelasComDesconto.length > 0) corpoFinal.parcelas = parcelasComDesconto;
 
-            const respostaFinal = await simular(corpoFinal);
+            const respostaFinal = parcelasComDesconto.length > 0 ? await simular(corpoFinal) : previa;
 
             diagnostico.push({
               negociacaoId: negociacao.id,
@@ -409,46 +332,16 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     /**
      * Efetiva o acordo de verdade — POST /api/acordos/efetivar.
      *
-     * A documentação oficial (Efetivar_Acordo.pdf) mostra que esse
-     * endpoint exige um objeto `parcelamento` completo (numeroParcelas,
-     * valorEntrada, dataEmissao, dataVencimento, descontoDivida,
-     * taxaOperacao, descontoTarifa — todos obrigatórios) e, se enviar
-     * `parcelas`, TODOS os campos de desconto por parcela são
-     * obrigatórios (diferente do /simular, onde são opcionais).
-     *
-     * IMPORTANTE (confirmado pelo usuário testando no CobranSaaS): o
-     * CobranSaaS distribui os centavos entre as parcelas de um jeito que
-     * a gente não consegue reproduzir por conta própria — então NUNCA
-     * reconstruímos o `parcelamento` a partir de pedaços capturados
-     * antes. Em vez disso, simulamos de novo, bem na hora de efetivar,
-     * só pra essa forma de pagamento específica (mesmo desconto, mesma
-     * data), e usamos a resposta inteira como veio — sem tocar em nenhum
-     * valor.
+     * Regra fixa: reutiliza EXATAMENTE o que a simulação já devolveu
+     * quando as propostas foram mostradas ao cliente (guardado em
+     * `proposta._parcelamentoBruto` e `proposta._parcelasComDesconto` —
+     * a "sessão" daquela negociação) — nunca simula de novo, nunca
+     * reconstrói nem recalcula nenhum valor. O `parcelamento` do
+     * /efetivar é montado copiando os campos que ele exige (documentados
+     * em Efetivar_Acordo.pdf) diretamente do que veio no /simular.
      */
     async confirmarAcordo(clienteId, proposta) {
-      const numeroParcelasAlvo = Number(proposta._parcelamentoBruto?.numeroParcelas) || 0;
-      const dataEmissaoAlvo = proposta._parcelamentoBruto?.dataEmissao;
-
-      const corpoSimulacao = {
-        cliente: clienteId,
-        negociacao: proposta._negociacaoId,
-        parcelamentos: [{ numeroParcelas: numeroParcelasAlvo, dataEmissao: dataEmissaoAlvo }],
-      };
-      if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
-        corpoSimulacao.parcelas = proposta._parcelasComDesconto;
-      }
-
-      const simulacaoFinal = await chamarComAutenticacao({
-        method: 'POST',
-        path: '/api/assessorias/acordos/simular',
-        headers: { 'Content-Type': 'application/json' },
-        body: corpoSimulacao,
-      });
-
-      const bruto =
-        (simulacaoFinal.parcelamentos || []).find((p) => (Number(p.numeroParcelas) || 0) === numeroParcelasAlvo) ||
-        proposta._parcelamentoBruto ||
-        {};
+      const bruto = proposta._parcelamentoBruto || {};
 
       const corpo = {
         cliente: clienteId,
@@ -467,6 +360,9 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       };
 
       if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
+        // No /efetivar, todo campo de desconto da Parcela é obrigatório
+        // (diferente do /simular, onde eram opcionais) — completamos com
+        // 0 os que não usamos, sem alterar o valor do desconto principal.
         corpo.parcelas = proposta._parcelasComDesconto.map((p) => ({
           parcela: p.parcela,
           descontoPrincipal: Number(p.descontoPrincipal) || 0,
