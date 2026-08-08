@@ -27,6 +27,50 @@
 
 const axios = require('axios');
 
+// ---------------------------------------------------------------------------
+// Utilidades de data — só agenda DENTRO da janela que o próprio CobranSaaS
+// permite (dataEmissaoMin/Max, dataVencimentoMin/Max, devolvidas por ele
+// mesmo na 1ª simulação). Nenhum valor financeiro é calculado aqui, só
+// datas comerciais da Valoris (regra: entrada = dataEmissaoMin + 3 dias
+// úteis; 1ª parcela = entrada + 30 dias corridos).
+// ---------------------------------------------------------------------------
+
+function paraData(isoDate) {
+  const [ano, mes, dia] = isoDate.split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia));
+}
+
+function paraIso(data) {
+  return data.toISOString().slice(0, 10);
+}
+
+/** Soma dias ÚTEIS (pula sábado/domingo — feriados não são considerados,
+ * não temos calendário de feriados disponível). */
+function somarDiasUteis(dataBase, quantidade) {
+  const resultado = new Date(dataBase);
+  let somados = 0;
+  while (somados < quantidade) {
+    resultado.setUTCDate(resultado.getUTCDate() + 1);
+    const diaSemana = resultado.getUTCDay();
+    if (diaSemana !== 0 && diaSemana !== 6) somados++;
+  }
+  return resultado;
+}
+
+function somarDiasCorridos(dataBase, quantidade) {
+  const resultado = new Date(dataBase);
+  resultado.setUTCDate(resultado.getUTCDate() + quantidade);
+  return resultado;
+}
+
+/** Prende uma data ISO dentro de [min, max], se vierem informados. */
+function limitarIntervalo(valorIso, minIso, maxIso) {
+  let v = valorIso;
+  if (minIso && v < minIso) v = minIso;
+  if (maxIso && v > maxIso) v = maxIso;
+  return v;
+}
+
 function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenAplicativo, tenant }) {
   if (!proxyUrl || !proxySecret || !codigoAplicativo || !tokenAplicativo) {
     throw new Error(
@@ -196,29 +240,45 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     },
 
     /** Lista as negociações (modelos) configuradas na conta. */
+    /**
+     * Lista as negociações (modelos) configuradas na conta.
+     *
+     * Busca duas vezes e une o resultado (por id) — o usuário confirmou
+     * que a listagem às vezes omite uma negociação que está ativa de
+     * verdade no CobranSaaS (instabilidade do lado deles). Buscar 2x
+     * reduz a chance de perder uma negociação real por causa disso, sem
+     * mudar nem calcular nada — só junta o que veio nas duas tentativas.
+     */
     async listarNegociacoesDisponiveis() {
-      const resposta = await chamarComAutenticacao({ method: 'GET', path: '/api/assessorias/negociacoes' });
-      return resposta.content || resposta;
+      async function buscar() {
+        const resposta = await chamarComAutenticacao({ method: 'GET', path: '/api/assessorias/negociacoes' });
+        return resposta.content || resposta || [];
+      }
+
+      const [primeira, segunda] = await Promise.all([buscar(), buscar().catch(() => [])]);
+
+      const porId = new Map();
+      [...primeira, ...segunda].forEach((n) => porId.set(n.id, n));
+      return Array.from(porId.values());
     },
 
     /**
-     * Simula cada negociação disponível pro cliente. Regra fixa: a
-     * Valoris NUNCA calcula acordos — toda regra financeira (parcelas,
-     * datas, distribuição de centavos, descontos) pertence exclusivamente
-     * ao CobranSaaS. Aqui só descobrimos o desconto disponível e pedimos
-     * pro CobranSaaS aplicar — nunca inventamos parcelamentos, datas ou
-     * valores por conta própria.
+     * Simula cada negociação disponível pro cliente, seguindo o fluxo de
+     * duas etapas definido pela Valoris (documento "Fluxo correto de
+     * simulação em duas etapas"):
      *
-     * Duas chamadas por negociação:
-     * 1) prévia crua — só pra descobrir quanto de desconto de principal
-     *    (descontoPrincipalMax) o CobranSaaS permite pra cada parcela da
-     *    dívida (negociações "assessoria manual" podem devolver ZERO
-     *    parcelamentos aqui — só revelam as opções depois do passo 2);
-     * 2) aplica esse desconto (`parcelas: [{parcela, descontoPrincipal}]`)
-     *    — é essa resposta, com TODAS as opções de parcelamento já
-     *    calculadas do início ao fim pelo CobranSaaS (valores, datas,
-     *    distribuição de centavos), que vira a fonte de verdade. Nada
-     *    dela é recalculado ou reconstruído por nós.
+     * 1) Simulação BASE — só pra descobrir o que o CobranSaaS permite:
+     *    desconto máximo de principal por parcela (descontoPrincipalMax),
+     *    janelas de data (dataEmissaoMin/Max, dataVencimentoMin/Max) e
+     *    demais limites por opção de parcelamento. Essa resposta NUNCA é
+     *    mostrada ao cliente.
+     * 2) Simulação FINAL — pede ao CobranSaaS pra recalcular usando as
+     *    datas comerciais da Valoris (entrada/à vista = dataEmissaoMin +
+     *    3 dias úteis; 1ª parcela real = entrada + 30 dias corridos,
+     *    sempre limitado às janelas informadas no passo 1) E o desconto
+     *    máximo já descoberto. É só essa resposta — com valores, datas e
+     *    centavos 100% calculados pelo CobranSaaS — que vira proposta
+     *    pro cliente. Nada aqui é recalculado por nós.
      */
     async listarPropostas(clienteId) {
       const negociacoes = await this.listarNegociacoesDisponiveis();
@@ -238,16 +298,37 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         negociacoes.map(async (negociacao) => {
           const corpoBase = { cliente: clienteId, negociacao: negociacao.id };
           try {
-            const previa = await simular(corpoBase);
+            // 1) Simulação base — descobre desconto e janelas de data.
+            const base = await simular(corpoBase);
 
-            const parcelasComDesconto = (previa.parcelas || [])
+            const parcelasComDesconto = (base.parcelas || [])
               .filter((p) => Number(p.descontoPrincipalMax) > 0)
               .map((p) => ({ parcela: p.parcela, descontoPrincipal: Number(p.descontoPrincipalMax) }));
 
-            const corpoFinal = { ...corpoBase };
+            const parcelamentosComData = (base.parcelamentos || [])
+              .filter((p) => p.habilitado !== false)
+              .map((p) => {
+                const numParcelas = Number(p.numeroParcelas) || 0;
+                const baseParaEntrada = p.dataEmissaoMin || base.dataOperacao;
+                const dataEntradaDesejada = paraIso(somarDiasUteis(paraData(baseParaEntrada), 3));
+                const dataEmissaoFinal = limitarIntervalo(dataEntradaDesejada, p.dataEmissaoMin, p.dataEmissaoMax);
+                const dataVencimentoFinal =
+                  numParcelas === 0
+                    ? dataEmissaoFinal
+                    : limitarIntervalo(
+                        paraIso(somarDiasCorridos(paraData(dataEmissaoFinal), 30)),
+                        p.dataVencimentoMin,
+                        p.dataVencimentoMax
+                      );
+                return { numeroParcelas: numParcelas, dataEmissao: dataEmissaoFinal, dataVencimento: dataVencimentoFinal };
+              });
+
+            // 2) Simulação final — datas comerciais da Valoris + desconto
+            // máximo, juntos. É essa resposta que vira proposta.
+            const corpoFinal = { ...corpoBase, parcelamentos: parcelamentosComData };
             if (parcelasComDesconto.length > 0) corpoFinal.parcelas = parcelasComDesconto;
 
-            const respostaFinal = parcelasComDesconto.length > 0 ? await simular(corpoFinal) : previa;
+            const respostaFinal = await simular(corpoFinal);
 
             diagnostico.push({
               negociacaoId: negociacao.id,
@@ -257,9 +338,9 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
               corpoEnviado: corpoFinal,
               parcelamentosGerados: (respostaFinal.parcelamentos || []).filter((p) => p.habilitado !== false).length,
               valorDivida: respostaFinal.valorDivida,
-              // Resposta completa da simulação, sem cortar nada — todas
-              // as datas mín/máx, descontos mín/máx, taxas etc, do jeito
-              // que o CobranSaaS devolveu.
+              // Resposta completa da 2ª simulação, sem cortar nada —
+              // todas as datas mín/máx, descontos mín/máx, taxas etc, do
+              // jeito que o CobranSaaS devolveu.
               respostaCompleta: respostaFinal,
             });
 
