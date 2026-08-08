@@ -298,18 +298,31 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         negociacoes.map(async (negociacao) => {
           const corpoBase = { cliente: clienteId, negociacao: negociacao.id };
           try {
-            // 1) Simulação base — descobre desconto e janelas de data.
+            // 1) Simulação base — descobre o desconto disponível. Pra
+            // negociações "assessoria manual" (como "Acordo"), essa
+            // resposta pode vir com `parcelamentos` VAZIO — as janelas de
+            // data só aparecem depois que o desconto é aplicado (passo
+            // 1.5 abaixo).
             const base = await simular(corpoBase);
 
             const parcelasComDesconto = (base.parcelas || [])
               .filter((p) => Number(p.descontoPrincipalMax) > 0)
               .map((p) => ({ parcela: p.parcela, descontoPrincipal: Number(p.descontoPrincipalMax) }));
 
-            const parcelamentosComData = (base.parcelamentos || [])
+            // 1.5) Se há desconto, aplica ele numa simulação intermediária
+            // — só assim as janelas de data (dataEmissaoMin/Max etc)
+            // ficam disponíveis pra negociações que exigem isso. Sem
+            // desconto, a base já serve de referência pras janelas.
+            const baseParaDatas =
+              parcelasComDesconto.length > 0
+                ? await simular({ ...corpoBase, parcelas: parcelasComDesconto })
+                : base;
+
+            const parcelamentosComData = (baseParaDatas.parcelamentos || [])
               .filter((p) => p.habilitado !== false)
               .map((p) => {
                 const numParcelas = Number(p.numeroParcelas) || 0;
-                const baseParaEntrada = p.dataEmissaoMin || base.dataOperacao;
+                const baseParaEntrada = p.dataEmissaoMin || baseParaDatas.dataOperacao;
                 const dataEntradaDesejada = paraIso(somarDiasUteis(paraData(baseParaEntrada), 3));
                 const dataEmissaoFinal = limitarIntervalo(dataEntradaDesejada, p.dataEmissaoMin, p.dataEmissaoMax);
                 const dataVencimentoFinal =
