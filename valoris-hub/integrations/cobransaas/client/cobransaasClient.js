@@ -136,7 +136,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
    * Um "parcelamento" retornado pelo simular vira uma proposta pro Portal.
    * numeroParcelas 1 (ou ausência de parcelas) = à vista.
    */
-  function mapearParcelamentoParaProposta(negociacaoId, parcelamento) {
+  function mapearParcelamentoParaProposta(negociacaoId, parcelamento, meioPagamentoId) {
     // CORREÇÃO: numeroParcelas="1" não é à vista — é "entrada + 1 parcela
     // real", um parcelamento de 2 pagamentos. Só numeroParcelas=0 é à
     // vista de verdade. (O <=1 antigo fazia duas opções aparecerem como
@@ -155,7 +155,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       // sem isso o efetivar de uma proposta à vista mandaria
       // negociacao/meioPagamento vazios.
       _negociacaoId: negociacaoId,
-      _meioPagamentoId: parcelamento.meioPagamento?.id,
+      // O campo `parcelamento.meioPagamento` fica sempre vazio na
+      // simulação — o meio de pagamento real vem da lista
+      // `meiosPagamento` no nível raiz da resposta (documentado como
+      // obrigatório pro /efetivar).
+      _meioPagamentoId: meioPagamentoId,
     };
 
     if (ehAVista) {
@@ -392,10 +396,11 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
           );
           diasAtraso = maiorAtraso || null;
         }
+        const meioPagamentoId = (resposta.meiosPagamento || [])[0]?.id;
         (resposta.parcelamentos || [])
           .filter((p) => p.habilitado !== false)
           .forEach((parcelamento) => {
-            const proposta = mapearParcelamentoParaProposta(negociacoes[i].id, parcelamento);
+            const proposta = mapearParcelamentoParaProposta(negociacoes[i].id, parcelamento, meioPagamentoId);
             // Guardado pra reaplicar o mesmo desconto na hora de efetivar
             // (ver confirmarAcordo) — sem isso o acordo seria criado sem
             // o desconto que foi mostrado ao cliente.
@@ -460,7 +465,12 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       if (proposta._parcelasComDesconto && proposta._parcelasComDesconto.length > 0) {
         // No /efetivar, todo campo de desconto da Parcela é obrigatório
         // (diferente do /simular, onde eram opcionais) — completamos com
-        // 0 os que não usamos, sem alterar o valor do desconto principal.
+        // 0 os que não usamos.
+        // IMPORTANTE (confirmado pelo usuário comparando com a simulação
+        // real): `valorDesconto` NÃO é igual a `descontoPrincipal` — são
+        // campos independentes. Quando o desconto é aplicado por
+        // categoria (principal, como aqui), a simulação real devolve
+        // valorDesconto = 0. Nunca copiar/somar um no outro.
         corpo.parcelas = proposta._parcelasComDesconto.map((p) => ({
           parcela: p.parcela,
           descontoPrincipal: Number(p.descontoPrincipal) || 0,
@@ -469,7 +479,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
           descontoMora: 0,
           descontoMulta: 0,
           descontoOutros: 0,
-          valorDesconto: Number(p.descontoPrincipal) || 0,
+          valorDesconto: 0,
         }));
       }
 
