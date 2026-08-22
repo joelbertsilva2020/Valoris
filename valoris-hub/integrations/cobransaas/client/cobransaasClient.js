@@ -99,6 +99,22 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     return data;
   }
 
+  /** Igual chamarProxy, mas pra respostas binárias (PDF do boleto) — não
+   * tenta interpretar a resposta como JSON. */
+  async function chamarProxyBinario({ method, path, headers = {} }) {
+    const { data, status } = await proxy.post(
+      '',
+      { method, path, headers, body: null },
+      { responseType: 'arraybuffer' }
+    );
+    if (status >= 400) {
+      const erro = new Error(`[CobranSaaS] Proxy/CobranSaaS retornou ${status}`);
+      erro.status = status;
+      throw erro;
+    }
+    return Buffer.from(data);
+  }
+
   async function obterToken() {
     if (tokenAtual && Date.now() < expiraEm) return tokenAtual;
 
@@ -127,6 +143,20 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         tokenAtual = null;
         const novoToken = await obterToken();
         return chamarProxy({ ...opcoes, headers: { ...opcoes.headers, Authorization: `Bearer ${novoToken}` } });
+      }
+      throw erro;
+    }
+  }
+
+  async function chamarComAutenticacaoBinario(opcoes) {
+    const token = await obterToken();
+    try {
+      return await chamarProxyBinario({ ...opcoes, headers: { ...opcoes.headers, Authorization: `Bearer ${token}` } });
+    } catch (erro) {
+      if (erro.status === 401) {
+        tokenAtual = null;
+        const novoToken = await obterToken();
+        return chamarProxyBinario({ ...opcoes, headers: { ...opcoes.headers, Authorization: `Bearer ${novoToken}` } });
       }
       throw erro;
     }
@@ -243,7 +273,6 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       };
     },
 
-    /** Lista as negociações (modelos) configuradas na conta. */
     /**
      * Lista as negociações (modelos) configuradas na conta.
      *
@@ -504,6 +533,47 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
       });
       const acordos = resposta.content || resposta;
       return acordos && acordos.length > 0 ? { existe: true, ...acordos[0] } : { existe: false };
+    },
+
+    /**
+     * Lista os acordos ATIVOS (situacao ABERTO ou PARCIAL) de um cliente
+     * — nunca ativo por padrão local, sempre consultado ao vivo. Filtro
+     * de situação feito aqui só compara o campo `situacao` que já veio
+     * do CobranSaaS, sem calcular nem inferir nada.
+     */
+    async getActiveAgreements(clienteId) {
+      const resposta = await chamarComAutenticacao({
+        method: 'GET',
+        path: `/api/assessorias/acordos?cliente=${clienteId}`,
+      });
+      const acordos = resposta.content || resposta || [];
+      return acordos.filter((a) => a.situacao === 'ABERTO' || a.situacao === 'PARCIAL');
+    },
+
+    /**
+     * Detalhe completo de um acordo — parcelas e boletos de cada parcela,
+     * exatamente como o CobranSaaS devolve (GET /acordos/{id}, com
+     * selector pra trazer parcelas e os boletos de cada parcela numa
+     * chamada só).
+     */
+    async getAgreementDetails(acordoId) {
+      return chamarComAutenticacao({
+        method: 'GET',
+        path: `/api/assessorias/acordos/${acordoId}?selector=parcelas,parcelas.boletos`,
+      });
+    },
+
+    /**
+     * PDF do boleto de uma parcela específica — devolve os bytes crus,
+     * sem interpretar. O nome do arquivo é fixo (o CobranSaaS não parece
+     * se importar com o valor, mas a documentação exige um segmento na
+     * URL).
+     */
+    async getInstallmentBoletoPdf(acordoId, parcelaId) {
+      return chamarComAutenticacaoBinario({
+        method: 'GET',
+        path: `/api/assessorias/acordos/${acordoId}/${parcelaId}/boleto.pdf`,
+      });
     },
   };
 }
