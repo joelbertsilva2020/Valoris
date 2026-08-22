@@ -7,6 +7,8 @@ import Negociacao from './pages/Negociacao';
 import RevisarAcordo from './pages/RevisarAcordo';
 import Sucesso from './pages/Sucesso';
 import MeuAcordo from './pages/MeuAcordo';
+import AcordoAtivo from './pages/AcordoAtivo';
+import DetalhesAcordo from './pages/DetalhesAcordo';
 import Seguranca from './pages/Seguranca';
 import CentralAjuda from './pages/CentralAjuda';
 import PoliticaPrivacidade from './pages/PoliticaPrivacidade';
@@ -24,6 +26,8 @@ export default function App() {
         <Route path="/revisar-acordo" element={<RevisarAcordo />} />
         <Route path="/sucesso" element={<Sucesso />} />
         <Route path="/meu-acordo" element={<MeuAcordo />} />
+        <Route path="/acordo-ativo" element={<AcordoAtivo />} />
+        <Route path="/acordo-detalhe/:id" element={<DetalhesAcordo />} />
         <Route path="/seguranca" element={<Seguranca />} />
         <Route path="/central-de-ajuda" element={<CentralAjuda />} />
         <Route path="/privacidade" element={<PoliticaPrivacidade />} />
