@@ -99,8 +99,7 @@ router.post('/escolher-proposta', async (req, res) => {
   }
 });
 
-// 6/7. Confirmar Acordo — recebe canal + e-mail da Tela 6 e efetiva no
-// CobranSaaS. Único ponto que cria o acordo de verdade.
+// 6/7. Confirmar Acordo — único ponto que cria o acordo de verdade
 router.post('/confirmar-acordo', async (req, res) => {
   try {
     const { clienteId, contratoId, propostaEscolhida, canal, email, cpf } = req.body;
@@ -121,7 +120,7 @@ router.post('/confirmar-acordo', async (req, res) => {
   }
 });
 
-// 9. Meu Acordo / Acordos em andamento — sempre ao vivo, pelo clienteId
+// 9. Meu Acordo (visão simples/legada) — sempre ao vivo, pelo clienteId
 router.post('/meu-acordo', async (req, res) => {
   try {
     const { clienteId } = req.body;
@@ -130,6 +129,47 @@ router.post('/meu-acordo', async (req, res) => {
     res.json(resultado);
   } catch (erro) {
     tratarErro(res, 'meu-acordo', erro);
+  }
+});
+
+// 9b. Acordos ativos — nova ramificação do fluxo pós-login
+router.post('/acordos-ativos', async (req, res) => {
+  try {
+    const { clienteId } = req.body;
+    if (!clienteId) return res.status(400).json({ erro: 'Cliente não informado.' });
+    const resultado = await portalService.listarAcordosAtivos(clienteId);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'acordos-ativos', erro);
+  }
+});
+
+// Detalhe de um acordo específico (parcelas + boletos), com validação de
+// posse (o acordo precisa pertencer ao clienteId informado).
+router.post('/acordo-detalhe', async (req, res) => {
+  try {
+    const { acordoId, clienteId } = req.body;
+    if (!acordoId || !clienteId) return res.status(400).json({ erro: 'Dados insuficientes.' });
+    const resultado = await portalService.consultarDetalheAcordo(acordoId, clienteId);
+    res.json(resultado);
+  } catch (erro) {
+    tratarErro(res, 'acordo-detalhe', erro);
+  }
+});
+
+// PDF do boleto de uma parcela — devolve o binário direto (não é JSON).
+router.post('/acordo-boleto', async (req, res) => {
+  try {
+    const { acordoId, parcelaId, clienteId } = req.body;
+    if (!acordoId || !parcelaId || !clienteId) {
+      return res.status(400).json({ erro: 'Dados insuficientes.' });
+    }
+    const pdfBuffer = await portalService.buscarBoletoParcela(acordoId, parcelaId, clienteId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="boleto.pdf"');
+    res.send(pdfBuffer);
+  } catch (erro) {
+    tratarErro(res, 'acordo-boleto', erro);
   }
 });
 
