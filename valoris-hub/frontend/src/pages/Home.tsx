@@ -123,8 +123,8 @@ export default function Home() {
       const contrato = contratosResp.contratos.find((c) => c.id === proximo.contratoId) || contratosResp.contratos[0];
       setContratoAtual(contrato);
 
-      if (proximo.destino === 'meu-acordo') {
-        navigate('/meu-acordo');
+      if (proximo.destino === 'acordo-ativo') {
+        navigate('/acordo-ativo');
       } else {
         navigate('/contratos');
       }
