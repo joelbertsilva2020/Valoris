@@ -184,7 +184,7 @@ export default function Home() {
 
             <button
               type="button"
-              onClick={() => navigate('/meu-acordo')}
+              onClick={() => navigate('/acordo-ativo')}
               className="block mt-4 text-sm text-roxo underline underline-offset-2 hover:text-roxo-claro transition-colors"
             >
               Já negociou? Pegar 2ª via de boleto.
