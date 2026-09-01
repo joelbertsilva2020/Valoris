@@ -24,6 +24,14 @@ interface AcordoResumo {
   parcelas?: ParcelaAcordo[];
 }
 
+/** Só traduz a situação real que já veio do CobranSaaS pra linguagem
+ * humana — nunca decide sozinha se o acordo está ativo ou não. */
+function traduzirSituacaoAcordo(situacao: string) {
+  if (situacao === 'PARCIAL') return 'Pagamento parcial';
+  if (situacao === 'PENDENTE') return 'Aguardando primeiro pagamento';
+  return 'Acordo ativo';
+}
+
 /** Acha a próxima parcela ainda não liquidada, na ordem — nunca mostra
  * como "próximo vencimento" uma parcela já paga/concluída/cancelada. */
 function proximaParcelaEmAberto(parcelas: ParcelaAcordo[] = []) {
@@ -96,7 +104,12 @@ export default function AcordoAtivo() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1.5">
                     <CheckCircle2 size={16} className="text-green-500 flex-shrink-0" />
-                    <span className="text-sm font-medium text-claro-texto">Acordo ativo</span>
+                    <span className="text-sm font-medium text-claro-texto">
+                      {traduzirSituacaoAcordo(acordo.situacao)}
+                    </span>
+                    {acordo.numeroAcordo && (
+                      <span className="text-xs text-claro-suave">· Acordo nº {acordo.numeroAcordo}</span>
+                    )}
                   </div>
                   {acordo.contrato?.numeroContrato && (
                     <p className="text-sm text-claro-suave mb-2">Contrato {acordo.contrato.numeroContrato}</p>
