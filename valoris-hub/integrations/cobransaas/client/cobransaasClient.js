@@ -536,10 +536,13 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
     },
 
     /**
-     * Lista os acordos ATIVOS (situacao ABERTO ou PARCIAL) de um cliente
-     * — nunca ativo por padrão local, sempre consultado ao vivo. Filtro
-     * de situação feito aqui só compara o campo `situacao` que já veio
-     * do CobranSaaS, sem calcular nem inferir nada.
+     * Lista os acordos ATIVOS de um cliente — nunca decidido localmente,
+     * sempre consultado ao vivo. Situações reais confirmadas pelo
+     * usuário pra negociações do tipo "Acordo": PENDENTE (aguardando o
+     * 1º pagamento/liquidação à vista) e PARCIAL (parcelado com algum
+     * pagamento já feito). NÃO inclui NAO_CUMPRIDO (acordo quebrado —
+     * nesse caso o cliente deve ver a negociação de novo) nem CANCELADO
+     * nem LIQUIDADO (já quitado).
      */
     async getActiveAgreements(clienteId) {
       const resposta = await chamarComAutenticacao({
@@ -547,7 +550,7 @@ function criarCobranSaasClient({ proxyUrl, proxySecret, codigoAplicativo, tokenA
         path: `/api/assessorias/acordos?cliente=${clienteId}`,
       });
       const acordos = resposta.content || resposta || [];
-      return acordos.filter((a) => a.situacao === 'ABERTO' || a.situacao === 'PARCIAL');
+      return acordos.filter((a) => a.situacao === 'PENDENTE' || a.situacao === 'PARCIAL');
     },
 
     /**
