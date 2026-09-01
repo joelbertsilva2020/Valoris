@@ -31,6 +31,14 @@ interface AcordoDetalhe {
   parcelas?: ParcelaAcordo[];
 }
 
+/** Só traduz a situação real que já veio do CobranSaaS — nunca decide
+ * sozinha se o acordo está ativo. */
+function traduzirSituacaoAcordo(situacao: string) {
+  if (situacao === 'PARCIAL') return 'Pagamento parcial';
+  if (situacao === 'PENDENTE') return 'Aguardando primeiro pagamento';
+  return 'Acordo ativo';
+}
+
 /** O boleto só pode ser oferecido se o CobranSaaS já tiver um boleto
  * registrado/pendente pra essa parcela — nunca por uma regra de dias
  * inventada por nós. A janela de "~10 dias antes" (informada pelo
@@ -129,7 +137,7 @@ export default function DetalhesAcordo() {
             )}
             <div className="flex justify-between text-sm">
               <span className="text-claro-suave">Situação</span>
-              <span className="text-claro-texto font-medium">Acordo ativo</span>
+              <span className="text-claro-texto font-medium">{traduzirSituacaoAcordo(acordo.situacao)}</span>
             </div>
             <div className="h-px bg-claro-linha" />
             <div className="flex justify-between items-center">
