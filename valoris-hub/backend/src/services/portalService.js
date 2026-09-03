@@ -244,9 +244,9 @@ async function consultarMeuAcordo(clienteId) {
 
 // ---------------------------------------------------------------------------
 // 9b. Acordos ativos — nova ramificação do fluxo (cliente que já tem
-//     acordo ABERTO/PARCIAL não deve ver a oferta de negociação de novo).
-//     Fonte da verdade sempre o CobranSaaS, nunca dado local/simulação
-//     antiga. Sem cache — cada acesso consulta ao vivo.
+//     acordo PENDENTE/PARCIAL não deve ver a oferta de negociação de
+//     novo). Fonte da verdade sempre o CobranSaaS, nunca dado
+//     local/simulação antiga. Sem cache — cada acesso consulta ao vivo.
 // ---------------------------------------------------------------------------
 async function listarAcordosAtivos(clienteId) {
   if (!clienteId) {
@@ -277,7 +277,15 @@ async function listarAcordosAtivos(clienteId) {
 /**
  * Detalhe completo de um acordo (parcelas + boletos), validando que o
  * acordo pertence de fato ao cliente autenticado antes de devolver
- * qualquer dado — nunca confiar só no id vindo do front.
+ * qualquer dado.
+ *
+ * CORREÇÃO: a 1ª versão comparava `acordo.cliente` (que a documentação
+ * do CobranSaaS descreve como "Id EXTERNO do cliente") contra o
+ * `clienteId` interno que usamos no resto do app — formatos diferentes,
+ * a comparação nunca batia e todo acordo real dava "não encontrado".
+ * Agora a posse é validada checando se o acordoId está entre os acordos
+ * ativos daquele cliente (a própria busca `?cliente=X` no CobranSaaS já
+ * filtra por cliente do lado deles).
  */
 async function consultarDetalheAcordo(acordoId, clienteId) {
   if (!acordoId || !clienteId) {
@@ -286,26 +294,31 @@ async function consultarDetalheAcordo(acordoId, clienteId) {
     throw erro;
   }
   const cobransaas = getCobranSaasService();
-  const acordo = await comTimeout(
-    cobransaas.getAgreementDetails(acordoId),
-    TIMEOUT_MS,
-    'CobranSaaS (detalhe do acordo)'
-  );
 
-  if (String(acordo.cliente) !== String(clienteId)) {
+  const acordosDoCliente = await comTimeout(
+    cobransaas.getActiveAgreements(clienteId),
+    TIMEOUT_MS,
+    'CobranSaaS (validar posse do acordo)'
+  );
+  const pertence = acordosDoCliente.some((a) => String(a.id) === String(acordoId));
+  if (!pertence) {
     const erro = new Error('Acordo não encontrado.');
     erro.status = 404;
     throw erro;
   }
 
-  return acordo;
+  return comTimeout(
+    cobransaas.getAgreementDetails(acordoId),
+    TIMEOUT_MS,
+    'CobranSaaS (detalhe do acordo)'
+  );
 }
 
 /**
  * PDF do boleto de uma parcela — mesma validação de posse do acordo
- * antes de buscar o PDF no CobranSaaS. Nunca gera boleto/linha
- * digitável por conta própria; só repassa o PDF que o CobranSaaS já
- * tem registrado.
+ * (via lista de acordos ativos do cliente) antes de buscar o PDF no
+ * CobranSaaS. Nunca gera boleto/linha digitável por conta própria; só
+ * repassa o PDF que o CobranSaaS já tem registrado.
  */
 async function buscarBoletoParcela(acordoId, parcelaId, clienteId) {
   if (!acordoId || !parcelaId || !clienteId) {
@@ -315,25 +328,23 @@ async function buscarBoletoParcela(acordoId, parcelaId, clienteId) {
   }
   const cobransaas = getCobranSaasService();
 
-  // Valida posse antes de buscar o PDF.
-  const acordo = await comTimeout(
-    cobransaas.getAgreementDetails(acordoId),
+  const acordosDoCliente = await comTimeout(
+    cobransaas.getActiveAgreements(clienteId),
     TIMEOUT_MS,
-    'CobranSaaS (detalhe do acordo)'
+    'CobranSaaS (validar posse do acordo)'
   );
-  if (String(acordo.cliente) !== String(clienteId)) {
+  const pertence = acordosDoCliente.some((a) => String(a.id) === String(acordoId));
+  if (!pertence) {
     const erro = new Error('Acordo não encontrado.');
     erro.status = 404;
     throw erro;
   }
 
-  const pdfBuffer = await comTimeout(
+  return comTimeout(
     cobransaas.getInstallmentBoletoPdf(acordoId, parcelaId),
     TIMEOUT_MS,
     'CobranSaaS (PDF do boleto)'
   );
-
-  return pdfBuffer;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,10 +357,6 @@ async function decidirProximoPasso(cpfBruto, contratos) {
   // MVP: só um parceiro/contrato por CPF. Verifica o primeiro contrato.
   const contrato = contratos[0];
 
-  // CORREÇÃO: o campo certo do CobranSaaS é `situacao` (não `status`), e
-  // os valores possíveis pra acordo ativo são ABERTO/PARCIAL — o valor
-  // 'ativo' nunca existiu na API, então essa checagem nunca disparava
-  // antes dessa correção.
   const acordosAtivos = await comTimeout(
     cobransaas.getActiveAgreements(contrato.clienteId),
     TIMEOUT_MS,
