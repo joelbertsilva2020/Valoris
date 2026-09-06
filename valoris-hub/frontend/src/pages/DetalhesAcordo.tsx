@@ -79,16 +79,26 @@ export default function DetalhesAcordo() {
 
   if (!contratoAtual || !id) return <AvisoSessao />;
 
-  async function baixarBoleto(parcelaId: string) {
+  async function baixarBoleto(numeroParcela: number) {
     if (!contratoAtual) return;
-    setBaixandoParcelaId(parcelaId);
+    setBaixandoParcelaId(String(numeroParcela));
     try {
       const resposta = await fetch('/api/portal/acordo-boleto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acordoId: id, parcelaId, clienteId: contratoAtual.clienteId }),
+        body: JSON.stringify({ acordoId: id, parcelaId: numeroParcela, clienteId: contratoAtual.clienteId }),
       });
-      if (!resposta.ok) throw new Error('Não foi possível abrir o boleto agora. Tente novamente em instantes.');
+      if (!resposta.ok) {
+        let mensagem = 'Não foi possível abrir o boleto agora. Tente novamente em instantes.';
+        try {
+          const corpo = await resposta.json();
+          if (corpo?.erro) mensagem = corpo.erro;
+          if (corpo?.detalhe) mensagem += ` — detalhe: ${JSON.stringify(corpo.detalhe)}`;
+        } catch {
+          // resposta não veio como JSON — mantém a mensagem genérica
+        }
+        throw new Error(mensagem);
+      }
       const blob = await resposta.blob();
       window.open(URL.createObjectURL(blob), '_blank');
     } catch (e: any) {
@@ -167,16 +177,16 @@ export default function DetalhesAcordo() {
                     <div className="mt-2">
                       {boletoDisponivel(parcela) ? (
                         <button
-                          onClick={() => baixarBoleto(parcela.id)}
-                          disabled={baixandoParcelaId === parcela.id}
+                          onClick={() => baixarBoleto(parcela.numeroParcela)}
+                          disabled={baixandoParcelaId === String(parcela.numeroParcela)}
                           className="flex items-center gap-2 text-sm font-medium text-roxo hover:text-roxo-claro transition-colors disabled:opacity-60"
                         >
-                          {baixandoParcelaId === parcela.id ? (
+                          {baixandoParcelaId === String(parcela.numeroParcela) ? (
                             <Loader2 size={15} className="animate-spin" />
                           ) : (
                             <FileDown size={15} />
                           )}
-                          {baixandoParcelaId === parcela.id ? 'Abrindo…' : 'Emitir boleto'}
+                          {baixandoParcelaId === String(parcela.numeroParcela) ? 'Abrindo…' : 'Emitir boleto'}
                         </button>
                       ) : (
                         <p className="flex items-center gap-1.5 text-xs text-claro-suave">
