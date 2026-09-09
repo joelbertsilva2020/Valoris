@@ -77,7 +77,10 @@ export default function Home() {
       setCpf(cpfAtual);
       setNome(resultado.nome);
       setModal(null);
-      await irParaContratos(cpfAtual);
+      // Mesmo sendo o 1º acesso na Valoris, o cliente pode já ter um
+      // acordo em andamento feito por outro canal — quem manda é o
+      // status real no CobranSaaS, não se é a primeira vez aqui.
+      await decidirEIrPara(cpfAtual);
     } catch (e: any) {
       setErroModal(e.message);
     } finally {
@@ -107,27 +110,7 @@ export default function Home() {
       setNome(resultado.nome ?? null);
       setModal(null);
 
-      const contratosResp = await chamarApi<{ contratos: any[] }>('/contratos', { cpf: cpfAtual });
-      setContratos(contratosResp.contratos);
-
-      if (contratosResp.contratos.length === 0) {
-        navigate('/nao-encontrado');
-        return;
-      }
-
-      const proximo = await chamarApi<{ destino: string; contratoId: string }>('/proximo-passo', {
-        cpf: cpfAtual,
-        contratos: contratosResp.contratos,
-      });
-
-      const contrato = contratosResp.contratos.find((c) => c.id === proximo.contratoId) || contratosResp.contratos[0];
-      setContratoAtual(contrato);
-
-      if (proximo.destino === 'acordo-ativo') {
-        navigate('/acordo-ativo');
-      } else {
-        navigate('/contratos');
-      }
+      await decidirEIrPara(cpfAtual);
     } catch (e: any) {
       setErroModal(e.message);
     } finally {
@@ -135,10 +118,34 @@ export default function Home() {
     }
   }
 
-  async function irParaContratos(cpf: string) {
+  /**
+   * Busca os contratos e SEMPRE consulta /proximo-passo antes de decidir
+   * pra onde levar o cliente — usado tanto no 1º acesso (cadastro)
+   * quanto no retorno (validação), pra nunca esquecer de checar se ele
+   * já tem acordo em andamento (feito aqui ou em outro canal).
+   */
+  async function decidirEIrPara(cpf: string) {
     const contratosResp = await chamarApi<{ nome: string; contratos: any[] }>('/contratos', { cpf });
     setContratos(contratosResp.contratos);
-    navigate('/contratos');
+
+    if (contratosResp.contratos.length === 0) {
+      navigate('/nao-encontrado');
+      return;
+    }
+
+    const proximo = await chamarApi<{ destino: string; contratoId: string }>('/proximo-passo', {
+      cpf,
+      contratos: contratosResp.contratos,
+    });
+
+    const contrato = contratosResp.contratos.find((c) => c.id === proximo.contratoId) || contratosResp.contratos[0];
+    setContratoAtual(contrato);
+
+    if (proximo.destino === 'acordo-ativo') {
+      navigate('/acordo-ativo');
+    } else {
+      navigate('/contratos');
+    }
   }
 
   return (
